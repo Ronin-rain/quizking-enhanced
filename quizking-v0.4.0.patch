@@ -1,0 +1,2508 @@
+diff --git a/FAQ.md b/FAQ.md
+index d8b721c..6f710c6 100644
+--- a/FAQ.md
++++ b/FAQ.md
+@@ -47,6 +47,49 @@ A: 截图经 `canvas` 重画后 base64 → POST 到你填的 endpoint。中间**
+ **Q: 气泡一直不消失？**
+ A: `Ctrl+Shift+H` 切换。或点气泡右上角 `—`（最小化）/ `✕`（关闭，**会清空内容**）。
+ 
++## 无痕 / 受限环境
++
++**Q: 无痕窗口里抓题没反应、快捷键也没用？**
++A: 先看 `chrome://extensions` → QuizKing「详情」→「允许在无痕模式下使用」是否打开。没打开时 Chrome 既不执行扩展动作，也不会把快捷键回退给浏览器默认行为——所以表现为“按了完全没反应”。打开后无需重装，快捷键立即生效。
++
++**Q: 无痕窗口里点「设置」打不开？**
++A: 这是 Chrome 的限制，不是 bug：默认 `"incognito": "spanning"` 模式下扩展不能把自己的页面加载进无痕标签页。插件会检测到并改在**普通窗口**打开设置页；若连普通窗口也没弹出，手动打开 `chrome://extensions` → 详情 → 扩展选项。
++
++**Q: 无痕窗口里问的题会存进历史吗？**
++A: 默认**不会**。`chrome.storage.local` 是普通窗口和无痕窗口共用的，所以无痕会话默认不落盘，避免私密会话留痕。需要留档时在选项页勾选「无痕会话也保存历史记录」。
++
++**Q: 考试用的 LockDown Browser / 受管 Chrome 里能用吗？**
++A: 不能用，而且这不该由插件解决。那类环境的禁用是由管理员通过浏览器策略（或专用客户端）在外部下发的，扩展代码无法绕过；能绕过反而是安全漏洞。可用 `chrome://policy` 和 `chrome://extensions` 确认是否被策略接管。
++
++**Q: 无痕窗口里我的 API Key 安全吗？**
++A: Key 只存在 `chrome.storage.sync`，只有 background service worker 读得到，内容脚本永远拿不到（`sanitizeCfg` 逐条剥离）。无痕窗口不会把 Key 写进无痕会话的任何新位置。
++
++## 网页把插件弄坏时
++
++**Q: 某个网站里气泡死活不出现？**
++A: 先确认是「站点手法」还是「浏览器限制」。浏览器限制页（`chrome://`、扩展商店、PDF 阅读器、其他扩展的页面）任何扩展都进不去，popup 会直接告诉你原因；`file://` 需要到扩展详情页打开「允许访问文件网址」。如果是站点手法，气泡被页面删掉后会在 1 秒内自动挂回，已显示的内容不丢。
++
++**Q: 气泡被页面的弹窗/遮罩盖住了？**
++A: 不会了。宿主元素通过 popover API 进入浏览器**顶层**，页面用多大的 z-index 都盖不住它。
++
++**Q: 页面的样式把气泡改得面目全非？**
++A: 不会了。UI 现在整个在 Shadow DOM 里，页面的 CSS（包括 `* { … }` 这种全局重置）够不到气泡内部；宿主元素自带 inline `!important`，页面的 `#aqh-root{display:none!important}` 之类也压不过它。
++
++**Q: 页面上的按钮点不动？**
++A: 所有按钮点击都由内容脚本在**捕获阶段**统一处理，而且脚本在 `document_start` 就注册好了，早于页面自己的脚本，所以页面「吞事件」的写法不再有效。
++
++**Q: 题目在 iframe 里，划词能抓到吗？**
++A: 能。抓选区时会向页面里所有帧收选区，取最长的那段回顶层渲染气泡（配置见 `manifest.json` 的 `all_frames`）。
++
++**Q: 网站禁用了文字选择，划词没反应？**
++A: 这类站点用 `user-select: none` 做复制保护，扩展不去破解，改用「抓取截图」通道（`Ctrl+Shift+E`）即可。
++
++**Q: 有网站能把气泡彻底搞掉吗？**
++A: 有一种：页面持续用 `MutationObserver` + 定时器把 `<body>` 里新增的节点全删掉。这种写法也会把它自己的弹窗一起删掉，现实里很少见；真遇到就没有办法。可复现样例见 `_testpage/attacks.html?atk=sweepbody`。
++
++**Q: 能不能让插件对网站「隐身」，不被检测到？**
++A: 不做，而且做了也没用——任何脚本走一遍 DOM 就能看到注入的宿主节点，伪装只会让代码更脆、更难维护。同理，绕开考试或受管环境的监考机制也不在本项目范围内。
++
+ ## 故障排查
+ 
+ **Q: 状态栏「未配置 API Key」？**
+diff --git a/README.md b/README.md
+index e51e445..d566a19 100644
+--- a/README.md
++++ b/README.md
+@@ -40,6 +40,7 @@
+ - **可拖动悬浮气泡**，可设透明度（0.4–1.0），调低后自动去色淡化、融入页面，ESC 隐藏，⚙ 跳设置
+ - **多触发方式** — 快捷键 / 右键菜单 / 浮动按钮 / 工具栏 popup
+ - **本地历史** — 最近 200 条（可关），一键清空
++- **无痕模式可用** — 一键跳到扩展详情页开启无痕权限；无痕窗口里设置页自动改在普通窗口打开，无痕会话默认不留历史
+ - **脏标记** — 选项页改了任何字段都会高亮「● 有未保存的修改」直到点保存
+ - **零上报** — 不接任何第三方分析 / 统计 / beacon
+ 
+@@ -149,6 +150,56 @@
+ - 选中文字 → 右键 → 「抓取选区并问 AI」 / 「抓取可见区域并问 AI」 / 「抓取整页 DOM 文本并问 AI」 / 「关闭当前 AI 气泡」
+ - 工具栏图标 → 弹 popup → 四个按钮（含详细快捷键说明）
+ 
++## 无痕模式与受限环境
++
++Chrome 出于安全考虑**默认不允许任何扩展在无痕窗口里运行**，而且没有 manifest 开关可以绕过——只能由你在扩展详情页手动允许一次。插件已经把能自动化的部分都做掉了。
++
++**开启（一次性）**
++
++1. `chrome://extensions` → QuizKing「详情」
++2. 打开「允许在无痕模式下使用」
++
++也可以从插件里一键跳到那一页：popup 的「开启无痕权限」按钮，或 选项页 →「无痕模式 / 受限环境」→「打开扩展详情页」。
++
++**开启后各通道表现**
++
++| 能力 | 无痕窗口表现 |
++| --- | --- |
++| 划词 / 截图 / 整页抓取、气泡、无痕角标 | 正常 |
++| 4 个快捷键、右键菜单、工具栏 popup | 正常（快捷键要在无痕权限开启后才生效） |
++| 服务商 / Prompt / 透明度等配置 | 与普通窗口**共享**（`chrome.storage` 在两处始终共用，不会丢配置） |
++| 气泡里的「⚙ 设置」 | 自动改在**普通窗口**打开设置页 |
++| 历史记录 | 无痕会话**默认不写入**共享历史，可在选项页打开「无痕会话也保存历史记录」 |
++
++> 为什么设置页不能直接在无痕窗口里打开：默认的 `"incognito": "spanning"` 模式下，Chrome 不允许扩展把自己的页面加载进无痕标签页的主框架。插件检测到无痕窗口后会改用普通窗口打开，而不是安静地失败。
++
++**如果你说的“锁定 / Lockdown”是受管环境**
++
++部分考试或管控环境（如 Respondus LockDown Browser、学校或单位统一下发的受管 Chrome）会在**策略层**直接禁用扩展。这类限制由管理员在浏览器外部下发，插件代码无法也不应该绕过。判断方法：`chrome://extensions` 里插件被禁用且无法启用、或扩展页显示「由贵单位管理」，就是策略封锁。要区分“环境限制”和“插件本身的问题”，按下面的离线自检跑一遍即可。
++
++## 网页能怎么弄坏插件，以及现在的对策
++
++「打开某个网站就用不了」通常是下面这几类手法。每一条都有对策，并且都用 `tools/probe-attacks.mjs` 在真实内核里逐条实测过（改造前 v0.3.0 → 改造后 v0.4.0）：
++
++| 网页手法 | 造成的后果 | 现在的对策 | 结果 |
++| --- | --- | --- | --- |
++| 页面 CSS 强杀：`#aqh-root{display:none!important}`、`[data-act]{display:none!important}`、`* { … }` | 气泡看不见 / 点不到 | UI 整体搬进 Shadow DOM（页面 CSS 够不到内部）；宿主元素带 inline `!important`，压过页面的 `!important` | 已挡住（改造前被挡） |
++| 全屏遮罩抢 `z-index: 2147483647`，并反复把自己后置 | 气泡被盖住、点不到 | 宿主用 popover API 进入**顶层**，任何 z-index 都盖不住它 | 已挡住（改造前被挡） |
++| `MutationObserver` + 定时清理，删除注入的节点 | 气泡被删掉 | UI 挂在 `<body>`（注入类 UI 的常规位置，避开「清理 `<html>` 下杂项」的脚本；若 body 链上有 `transform`/`filter` 这类会破坏 fixed 定位的属性，则自动回退挂到 `<html>`）；1 秒心跳自愈，被删后自动挂回且**已显示的内容不丢**；每次抓题前也会补挂一次 | 已挡住（改造前被挡） |
++| `window.addEventListener('click', …, true)` 吞掉事件 | 按钮点了没反应 | 内容脚本 `run_at: document_start`，所有 UI 点击走捕获期委托，注册早于页面脚本 | 已挡住（改造前被挡） |
++| 页面世界的猴子补丁：改写 `appendChild` / `remove` / `MutationObserver` / `getSelection` | 想让扩展失效 | 内容脚本运行在隔离世界，页面改自己的原型对象影响不到它 | 不受影响 |
++| 题目在 iframe 里，顶层文档读不到选区 | 划词抓不到题 | `all_frames: true`；抓选区时向所有帧收选区，取最长的一段回顶层渲染 | 已支持（新增） |
++| 页面禁用文字选择（`user-select: none`） | 划词根本选不中 | 无法对抗——这是站点的复制保护，而且对抗它就是帮人破防复制。改用「抓取截图」通道 | 已知限制 |
++
++### 一个真正挡不住的场景
++
++如果页面**持续地**把 `<body>` 里新增的节点全部删掉（`MutationObserver` + 定时器，见 `_testpage/attacks.html?atk=sweepbody`），UI 会在「挂上 → 被删」之间反复循环，你基本看不到气泡。这种页面同时也会删掉它自己的弹窗、下拉、浮层，现实里很少见；真遇到时扩展这边无解。
++
++### 不做「隐身」的原因
++
++有两件事不做：一是让扩展对页面**隐身**，二是绕开考试 / 受管环境的监考与管控。
++前者技术上也不成立——任何脚本走一遍 DOM 就能看到宿主节点，所谓隐身只是把检测门槛抬高一点点，挡不住有心人，却会让代码变得脆弱难维护；后者不是技术问题，是诚信问题，这条线不碰。练题、作业、自测这些场景里，这插件才是它该待的地方。
++
+ ## 架构
+ 
+ ```
+@@ -185,12 +236,13 @@ QuizKing/
+ ├─ src/                           # 扩展源码（加载这一层即可运行）
+ │  ├─ manifest.json               # MV3 manifest
+ │  ├─ background.js               # service worker：命令路由 / LLM HTTP / 存储
+-│  ├─ content.js                  # 内容脚本：捕获通道 / 气泡 / FAB
+-│  ├─ bubble.css                  # 气泡样式
++│  ├─ content.js                  # 内容脚本：捕获通道 / 气泡 / FAB（样式内联在 Shadow DOM 里）
+ │  ├─ popup.html / popup.js
+ │  ├─ options.html / options.css / options.js
+ │  ├─ _locales/zh_CN/messages.json
+ │  └─ icons/                      # 16 / 48 / 128 王字 PNG
++├─ _testpage/                     # 冒烟测试页（含各种“屏蔽扩展”手法的模拟页）
++├─ tools/                         # 真机验证脚本（见 tools/README.md）
+ ├─ .github/
+ │  ├─ ISSUE_TEMPLATE/             # bug / feature 模板
+ │  └─ PULL_REQUEST_TEMPLATE.md
+diff --git a/_testpage/attacks.html b/_testpage/attacks.html
+new file mode 100644
+index 0000000..070781f
+--- /dev/null
++++ b/_testpage/attacks.html
+@@ -0,0 +1,109 @@
++<!doctype html>
++<html lang="zh-CN">
++<head>
++<meta charset="utf-8" />
++<title>QuizKing 攻击面测试页</title>
++<style>
++  body { font-family: system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; margin: 0; padding: 24px; }
++  h1 { font-size: 18px; }
++  #cover { position: fixed; inset: 0; background: rgba(20, 40, 90, 0.35); z-index: 2147483647; display: none; }
++</style>
++</head>
++<body>
++  <h1 id="q">1 + 1 = ?</h1>
++  <p>攻击模式：<b id="atk">none</b></p>
++  <p id="text">选中这段文字可以测试划词通道。</p>
++  <div id="cover"></div>
++  <script>
++    // 这个页面只做一件事：用各种真实站点会用的手法，去弄坏注入进来的扩展 UI。
++    // 每个模式用 ?atk=xxx 打开，工具脚本会逐个跑。
++    const atk = new URLSearchParams(location.search).get("atk") || "none";
++    document.getElementById("atk").textContent = atk;
++    const rootChildren = () => Array.from(document.documentElement.children);
++
++    if (atk === "sweep") {
++      // 反广告脚本的典型做法：任何刚插进 <html> 的未知节点，立刻删掉
++      const kill = () => {
++        for (const el of rootChildren()) {
++          const tag = el.tagName;
++          if (tag === "HEAD" || tag === "BODY") continue;
++          el.remove();
++        }
++      };
++      new MutationObserver(kill).observe(document.documentElement, { childList: true });
++      setInterval(kill, 300);
++    }
++
++    if (atk === "wipeonce") {
++      // 单次暴力清理：把宿主删掉一次，之后不再动手（用于确定性验证自愈）
++      setTimeout(() => {
++        for (const el of rootChildren()) {
++          const tag = el.tagName;
++          if (tag === "HEAD" || tag === "BODY") continue;
++          el.remove();
++        }
++      }, 500);
++    }
++
++    if (atk === "sweepbody") {
++      // 更狠的一档：连 <body> 里新增的节点也一起清（页面自己的弹层也会被清掉）
++      const known = new Set(Array.from(document.body.children));
++      const kill = () => {
++        for (const el of Array.from(document.body.children)) {
++          if (!known.has(el)) el.remove();
++        }
++      };
++      new MutationObserver(kill).observe(document.body, { childList: true });
++      setInterval(kill, 300);
++    }
++
++    if (atk === "css") {
++      const st = document.createElement("style");
++      st.textContent = [
++        '#aqh-root, div[id^="aqh"], [id*="aqh"], [class*="aqh"] { display: none !important; visibility: hidden !important; }',
++        '#aqh-root * { display: none !important; }',
++        '.aqh-item, [data-act] { display: none !important; }',
++        '* { user-select: none !important; }',
++      ].join("\n");
++      document.head.appendChild(st);
++    }
++
++    if (atk === "transformbody") {
++      // body 上有 transform 会让 position:fixed 变成相对 body 定位，
++      // 扩展应当检测到并回退到 <html>，而不是把气泡挂在一个会跟着滚动跑的位置
++      document.body.style.transform = "translateZ(0)";
++    }
++
++    if (atk === "zfight") {
++      const c = document.getElementById("cover");
++      c.style.display = "block";
++      // 反复把自己挪成最后一个子节点，抢 z-index 平局时的绘制顺序
++      setInterval(() => document.documentElement.appendChild(c), 300);
++    }
++
++    if (atk === "blockclick") {
++      // 在 window 捕获阶段吞掉所有点击/指针事件
++      for (const t of ["click", "pointerdown", "mousedown", "mouseup"]) {
++        window.addEventListener(t, (e) => { e.stopImmediatePropagation(); }, true);
++      }
++    }
++
++    if (atk === "monkey") {
++      // 页面世界里的猴子补丁：隔离世界理论上完全不受影响
++      try {
++        Element.prototype.appendChild = function () { throw new Error("blocked by page"); };
++        Element.prototype.remove = function () { /* noop */ };
++        Node.prototype.removeChild = function () { return null; };
++        window.MutationObserver = function () { return { observe() {}, disconnect() {} }; };
++        document.getSelection = () => null;
++        window.getSelection = () => null;
++      } catch (e) { /* ignore */ }
++    }
++
++    if (atk === "selectnone") {
++      document.addEventListener("selectstart", (e) => e.preventDefault());
++      document.body.style.userSelect = "none";
++    }
++  </script>
++</body>
++</html>
+diff --git a/_testpage/frame-inner.html b/_testpage/frame-inner.html
+new file mode 100644
+index 0000000..991cd2f
+--- /dev/null
++++ b/_testpage/frame-inner.html
+@@ -0,0 +1,17 @@
++<!doctype html>
++<html lang="zh-CN">
++<head><meta charset="utf-8" /><title>iframe 内容</title></head>
++<body style="font-family: system-ui; padding: 8px">
++  <p id="text">IFRAME-QUESTION-42 这道题在 iframe 里面。</p>
++  <script>
++    // 模拟“题目在 iframe 里被选中”，顶层文档读不到它
++    window.addEventListener("load", () => {
++      const range = document.createRange();
++      range.selectNodeContents(document.getElementById("text"));
++      const sel = window.getSelection();
++      sel.removeAllRanges();
++      sel.addRange(range);
++    });
++  </script>
++</body>
++</html>
+diff --git a/_testpage/frame.html b/_testpage/frame.html
+new file mode 100644
+index 0000000..c1ade44
+--- /dev/null
++++ b/_testpage/frame.html
+@@ -0,0 +1,8 @@
++<!doctype html>
++<html lang="zh-CN">
++<head><meta charset="utf-8" /><title>iframe 场景测试页</title></head>
++<body style="font-family: system-ui; padding: 24px">
++  <h1>顶部文档：这里没有选区</h1>
++  <iframe src="frame-inner.html" style="width: 520px; height: 140px; border: 1px solid #ccc"></iframe>
++</body>
++</html>
+diff --git a/_testpage/index.html b/_testpage/index.html
+new file mode 100644
+index 0000000..dd6d48e
+--- /dev/null
++++ b/_testpage/index.html
+@@ -0,0 +1,8 @@
++<!doctype html>
++<html lang="zh-CN">
++<head><meta charset="utf-8" /><title>QuizKing 冒烟测试页</title></head>
++<body>
++  <h1 id="q">1 + 1 = ?</h1>
++  <p>仅用于 tools/ 下的自动化验证：确认内容脚本注入与消息通道。</p>
++</body>
++</html>
+diff --git a/src/background.js b/src/background.js
+index 9c2cdea..fb6420b 100644
+--- a/src/background.js
++++ b/src/background.js
+@@ -24,6 +24,15 @@ const PROVIDER_DEFAULTS = {
+ // Legacy keys (endpoint / apiKey / model) are read once for migration only.
+ const LEGACY_KEYS = ["endpoint", "apiKey", "model"];
+ 
++// Incognito / locked-down browser notes (paired with "incognito": "spanning"):
++//   * Chrome only lets the *user* grant incognito access (chrome://extensions →
++//     详情 → 允许在无痕模式下使用). No manifest key can force it, so we detect
++//     the state and guide instead of failing silently.
++//   * "spanning" keeps ONE service worker behind regular and incognito tabs,
++//     which is what lets an incognito tab reuse the configured providers.
++//   * A spanning extension cannot load its own pages into an incognito tab, so
++//     the options page has to be opened in a regular window from incognito.
++
+ const DEFAULTS = {
+   temperature: 0.2,
+   bubbleOpacity: 0.95,
+@@ -33,6 +42,8 @@ const DEFAULTS = {
+   reasoningPrompt:
+     "你是一位严谨的解题助手。用户会给你网页上截取的一道题目（可能附文本和图片）。请仔细阅读，输出严格的 JSON：{\"answer\":\"...\", \"reasoning\":\"...\"}，不要任何额外文字、不要 markdown 代码块。answer 用最简洁的方式给出最终答案；reasoning 解释关键步骤（中文）。",
+   saveHistory: true,
++  // Incognito questions are not written to the shared history unless asked.
++  saveHistoryIncognito: false,
+ };
+ 
+ function normalizeProvider(p, i) {
+@@ -101,16 +112,85 @@ function getActiveTab() {
+   });
+ }
+ 
++function inIncognitoTab(sender) {
++  return !!(sender && sender.tab && sender.tab.incognito);
++}
++
++function isAllowedIncognitoAccess() {
++  return new Promise((resolve) => {
++    try {
++      chrome.extension.isAllowedIncognitoAccess((allowed) => {
++        void chrome.runtime.lastError;
++        resolve(!!allowed);
++      });
++    } catch (e) {
++      void e;
++      resolve(false);
++    }
++  });
++}
++
++// From an incognito window a spanning extension cannot show its own page in a
++// tab, so ⚙ opens the options page in a regular window instead.
++async function openOptions(incognito) {
++  if (incognito) {
++    try {
++      await chrome.windows.create({
++        url: chrome.runtime.getURL("options.html"),
++        focused: true,
++      });
++      return { ok: true, where: "normal-window" };
++    } catch (e) {
++      // fall through to the ordinary path
++      console.warn("openOptions in normal window failed", e && e.message);
++    }
++  }
++  try {
++    await chrome.runtime.openOptionsPage();
++    return { ok: true, where: "options-page" };
++  } catch (e) {
++    return { ok: false, error: (e && e.message) || String(e) };
++  }
++}
++
+ async function sendToContent(tab, type, payload) {
+   if (!tab || !tab.id) return;
+   try {
+-    await chrome.tabs.sendMessage(tab.id, { type, payload });
++    // frameId 0 = the top frame only. With all_frames enabled every frame runs
++    // content.js, and only the top frame may draw the bubble.
++    await chrome.tabs.sendMessage(tab.id, { type, payload }, { frameId: 0 });
+   } catch (e) {
+     // ignore if no content script (e.g. chrome:// pages)
+     console.warn("sendToContent failed", type, e && e.message);
+   }
+ }
+ 
++// --- Selection living inside an iframe ------------------------------------
++// Quiz platforms often render the question in a frame the top document cannot
++// read. Ask every frame for its selection, keep the longest one.
++const FRAME_SELECTION_WINDOW_MS = 250;
++const frameSelSlots = new Map();
++
++function collectFrameSelections(tabId) {
++  return new Promise((resolve) => {
++    if (tabId === undefined || tabId === null) return resolve("");
++    const reqId = newReqId();
++    const slot = { parts: [] };
++    frameSelSlots.set(reqId, slot);
++    try {
++      // No frameId: broadcast to every frame in the tab.
++      chrome.tabs.sendMessage(tabId, { type: "aqh/want-selection", payload: { reqId } }, () => {
++        void chrome.runtime.lastError;
++      });
++    } catch (e) { void e; }
++    setTimeout(() => {
++      frameSelSlots.delete(reqId);
++      const best = slot.parts.sort((a, b) => b.length - a.length)[0] || "";
++      resolve(best);
++    }, FRAME_SELECTION_WINDOW_MS);
++  });
++}
++
+ async function triggerCapture(kind) {
+   const tab = await getActiveTab();
+   if (!tab) return;
+@@ -276,11 +356,11 @@ function pushToTab(tabId, type, payload) {
+   if (tabId === undefined || tabId === null) return;
+   try {
+     // Callback form so a closed tab surfaces as lastError instead of a throw.
+-    chrome.tabs.sendMessage(tabId, { type, payload }, () => { void chrome.runtime.lastError; });
++    chrome.tabs.sendMessage(tabId, { type, payload }, { frameId: 0 }, () => { void chrome.runtime.lastError; });
+   } catch (e) { void e; }
+ }
+ 
+-async function runAsk({ reqId, tabId, payload, cfg, active, promptMode }) {
++async function runAsk({ reqId, tabId, payload, cfg, active, promptMode, incognito }) {
+   let items;
+   try {
+     const settled = await askAll(payload, (item) => {
+@@ -301,6 +381,7 @@ async function runAsk({ reqId, tabId, payload, cfg, active, promptMode }) {
+       answer: it.answer,
+       reasoning: it.reasoning,
+       model: it.model,
++      incognito: !!incognito,
+     }))
+   );
+ }
+@@ -310,9 +391,13 @@ async function saveHistoryMany(entries) {
+   if (!entries.length) return;
+   const cfg = await ensureDefaults();
+   if (!cfg.saveHistory) return;
++  // Incognito questions stay out of the shared history unless the user opts in,
++  // otherwise a private session would leave traces in a shared storage area.
++  const keep = entries.filter((e) => !e.incognito || cfg.saveHistoryIncognito === true);
++  if (!keep.length) return;
+   return new Promise((resolve) => {
+     chrome.storage.local.get({ history: [] }, (cur) => {
+-      const list = [...entries, ...(cur.history || [])].slice(0, 200);
++      const list = [...keep, ...(cur.history || [])].slice(0, 200);
+       chrome.storage.local.set({ history: list }, () => resolve());
+     });
+   });
+@@ -369,7 +454,24 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+       if (!msg || !msg.type) return sendResponse({ ok: false, error: "empty" });
+       if (msg.type === "aqh/get-config") {
+         const cfg = await ensureDefaults();
+-        return sendResponse({ ok: true, cfg: sanitizeCfg(cfg) });
++        // sender.tab is the tab the content script lives in, so the bubble can
++        // tell an incognito window apart from a regular one.
++        return sendResponse({ ok: true, cfg: sanitizeCfg(cfg), incognito: inIncognitoTab(sender) });
++      }
++      if (msg.type === "aqh/open-options") {
++        // Popups answer without sender.tab, so they pass their tab's flag along.
++        const incognito = inIncognitoTab(sender) || !!(msg.payload && msg.payload.incognito);
++        return sendResponse(await openOptions(incognito));
++      }
++      if (msg.type === "aqh/collect-frame-selection") {
++        const tabId = sender.tab && sender.tab.id;
++        return sendResponse({ ok: true, text: await collectFrameSelections(tabId) });
++      }
++      if (msg.type === "aqh/selection-part") {
++        const p = msg.payload || {};
++        const slot = frameSelSlots.get(p.reqId);
++        if (slot && p.text) slot.parts.push(String(p.text));
++        return sendResponse({ ok: true });
+       }
+       if (msg.type === "aqh/capture-visible-tab") {
+         const tab = sender.tab || (await getActiveTab());
+@@ -391,13 +493,19 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+         }
+         const reqId = newReqId();
+         const promptMode = cfg.promptMode || "reason";
++        const incognito = inIncognitoTab(sender);
+         // Reply right away with the roster so the bubble can draw one pending
+         // card per provider, then stream each answer in as it arrives.
+         sendResponse({
+           ok: true,
+-          result: { reqId, pending: active.map((p) => ({ id: p.id, label: p.label, model: p.model })), promptMode },
++          result: {
++            reqId,
++            pending: active.map((p) => ({ id: p.id, label: p.label, model: p.model })),
++            promptMode,
++            incognito,
++          },
+         });
+-        runAsk({ reqId, tabId, payload, cfg, active, promptMode });
++        runAsk({ reqId, tabId, payload, cfg, active, promptMode, incognito });
+         return true;
+       }
+       if (msg.type === "aqh/selftest" && self.__AQH_SELFTEST__) {
+@@ -405,8 +513,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+         return sendResponse({
+           ok: true,
+           cfg: sanitizeCfg(cfg),
+-          routes: ["aqh/get-config", "aqh/capture-visible-tab", "aqh/ask", "aqh/test", "aqh/selftest"],
+-          flags: { selftest: !!self.__AQH_SELFTEST__ },
++          routes: [
++            "aqh/get-config", "aqh/open-options", "aqh/collect-frame-selection",
++            "aqh/selection-part", "aqh/capture-visible-tab", "aqh/ask", "aqh/test", "aqh/selftest",
++          ],
++          flags: {
++            selftest: !!self.__AQH_SELFTEST__,
++            incognitoContext: !!chrome.extension.inIncognitoContext,
++            incognitoAccess: await isAllowedIncognitoAccess(),
++          },
+         });
+       }
+       if (msg.type === "aqh/test") {
+@@ -417,6 +532,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+           cfg: safe,
+           hasKey: safe.hasKey,
+           providerCount: safe.providers.filter((p) => p.enabled).length,
++          version: chrome.runtime.getManifest().version,
++          incognitoAccess: await isAllowedIncognitoAccess(),
++          incognitoContext: !!chrome.extension.inIncognitoContext,
+         });
+       }
+       return sendResponse({ ok: false, error: "unknown" });
+diff --git a/src/bubble.css b/src/bubble.css
+deleted file mode 100644
+index 4b9d8e0..0000000
+--- a/src/bubble.css
++++ /dev/null
+@@ -1,270 +0,0 @@
+-/* QuizKing · 答题王 bubble styles - injected via manifest. Use a host id prefix to avoid collisions. */
+-/* @license MIT */
+-
+-#aqh-root {
+-  all: initial;
+-  position: fixed;
+-  z-index: 2147483647;
+-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", Roboto, sans-serif;
+-  color: #1f2330;
+-}
+-
+-#aqh-bubble {
+-  position: fixed;
+-  right: 24px;
+-  bottom: 24px;
+-  width: 360px;
+-  max-width: 60vw;
+-  max-height: 60vh;
+-  background: rgba(255, 255, 255, 0.96);
+-  border: 1px solid rgba(0, 0, 0, 0.08);
+-  border-radius: 14px;
+-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
+-  overflow: hidden;
+-  display: flex;
+-  flex-direction: column;
+-  font-size: 14px;
+-  line-height: 1.5;
+-  opacity: var(--aqh-o, 0.95);
+-  /* The lower the opacity, the greyer the bubble: full colour at >= 0.8,
+-     fully desaturated at the 0.4 floor so it blends into the page. */
+-  filter: saturate(clamp(0, (var(--aqh-o, 0.95) - 0.4) / 0.4, 1));
+-}
+-
+-/* Saturated accents (王 glyph, primary buttons, consensus badge) fade faster
+-   than the bubble itself so no coloured hotspot remains at low opacity. */
+-#aqh-title-glyph,
+-.aqh-btn-primary,
+-.aqh-consensus,
+-.aqh-item-flag {
+-  opacity: clamp(0.3, (var(--aqh-o, 0.95) - 0.4) / 0.4, 1);
+-}
+-
+-/* The title row (王 glyph + "QuizKing · 答题王") fades out completely,
+-   vanishing at the 0.4 floor — branding blends away first. The header stays
+-   as the drag handle and keeps the ⚙/—/✕ buttons. */
+-#aqh-title {
+-  opacity: clamp(0, (var(--aqh-o, 0.95) - 0.4) / 0.4, 1);
+-}
+-
+-.aqh-btn-primary {
+-  appearance: none;
+-  border: 0;
+-  background: #3563ff;
+-  color: #fff;
+-  padding: 6px 12px;
+-  border-radius: 8px;
+-  cursor: pointer;
+-}
+-.aqh-btn-primary:hover { filter: brightness(1.08); }
+-
+-#aqh-bubble.aqh-hide { display: none; }
+-
+-#aqh-header {
+-  cursor: move;
+-  background: linear-gradient(180deg, #f7f8fc 0%, #eef1f8 100%);
+-  padding: 8px 10px;
+-  display: flex;
+-#aqh-title-glyph { display: inline-block; width: 22px; height: 22px; line-height: 22px; text-align: center; background: #3563ff; color: #fff; border-radius: 6px; margin-right: 8px; font-family: "PingFang SC","Microsoft YaHei",Heiti,sans-serif; font-weight: 700; font-size: 14px; }
+-#aqh-title-text { font-weight: 600; }
+-  align-items: center;
+-  gap: 8px;
+-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+-  user-select: none;
+-}
+-#aqh-title {
+-  font-weight: 600;
+-  flex: 1;
+-  font-size: 13px;
+-  color: #3b3f51;
+-}
+-#aqh-actions { display: flex; gap: 4px; }
+-#aqh-actions button {
+-  appearance: none;
+-  border: 0;
+-  background: transparent;
+-  cursor: pointer;
+-  font-size: 14px;
+-  padding: 4px 8px;
+-  color: #5b6273;
+-  border-radius: 6px;
+-}
+-#aqh-actions button:hover { background: rgba(0, 0, 0, 0.06); }
+-
+-#aqh-body { padding: 10px 12px; overflow: auto; flex: 1; }
+-
+-.aqh-answer-label, .aqh-reasoning-label {
+-  font-size: 11px;
+-  text-transform: uppercase;
+-  letter-spacing: 0.04em;
+-  color: #6b7080;
+-  margin: 4px 0 2px;
+-}
+-.aqh-answer-block {
+-  background: #eaf3ff;
+-  border: 1px solid #cfe1ff;
+-  border-radius: 10px;
+-  padding: 8px 10px;
+-  white-space: pre-wrap;
+-  word-break: break-word;
+-}
+-.aqh-reasoning-block {
+-  background: #fafbff;
+-  border: 1px solid #eef0f6;
+-  border-radius: 10px;
+-  padding: 8px 10px;
+-  white-space: pre-wrap;
+-  word-break: break-word;
+-}
+-.aqh-pre {
+-  background: #f3f4f8;
+-  border-radius: 6px;
+-  padding: 6px 8px;
+-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+-  font-size: 12px;
+-  white-space: pre-wrap;
+-  word-break: break-word;
+-}
+-.aqh-err { color: #b3261e; }
+-
+-/* --- Multi-provider results --------------------------------------------- */
+-.aqh-consensus {
+-  font-size: 12px;
+-  font-weight: 600;
+-  padding: 5px 10px;
+-  border-radius: 8px;
+-  margin-bottom: 8px;
+-  border: 1px solid transparent;
+-}
+-.aqh-consensus.aqh-same { background: #eaf7ee; border-color: #cbe8d5; color: #1a7f42; }
+-.aqh-consensus.aqh-diff { background: #fff6e8; border-color: #f2ddba; color: #9a6212; }
+-.aqh-consensus.aqh-wait { background: #f2f3f8; border-color: #e4e6ef; color: #6b7080; }
+-.aqh-item-pending { border-style: dashed; background: #fbfcfe; }
+-.aqh-item-pending .aqh-item-ms { font-style: italic; }
+-
+-.aqh-item {
+-  border: 1px solid #eef0f6;
+-  border-radius: 10px;
+-  padding: 8px 10px;
+-  background: #fafbff;
+-  margin-bottom: 8px;
+-}
+-.aqh-item:last-child { margin-bottom: 0; }
+-.aqh-item-head {
+-  display: flex;
+-  align-items: center;
+-  gap: 6px;
+-  margin-bottom: 6px;
+-  font-size: 12px;
+-}
+-.aqh-item-label { font-weight: 600; color: #3b3f51; }
+-.aqh-item-model {
+-  color: #6b7080;
+-  background: #eef1f8;
+-  border-radius: 999px;
+-  padding: 1px 7px;
+-  font-size: 11px;
+-}
+-.aqh-item-ms { color: #99a0b3; font-size: 11px; margin-left: auto; }
+-.aqh-item-flag {
+-  background: #fff6e8;
+-  border: 1px solid #f2ddba;
+-  color: #9a6212;
+-  border-radius: 999px;
+-  padding: 1px 7px;
+-  font-size: 11px;
+-}
+-.aqh-item.aqh-minority { border-color: #f2ddba; background: #fffdf8; }
+-.aqh-item.aqh-item-fail { border-color: #f0d5d2; background: #fdf6f5; }
+-.aqh-item .aqh-answer-block { margin: 0; }
+-.aqh-item-reason { margin-top: 6px; }
+-.aqh-item-reason > summary {
+-  cursor: pointer;
+-  font-size: 11px;
+-  text-transform: uppercase;
+-  letter-spacing: 0.04em;
+-  color: #6b7080;
+-  list-style: none;
+-}
+-.aqh-item-reason > summary::-webkit-details-marker { display: none; }
+-.aqh-item-reason > summary::before { content: "▸ "; }
+-.aqh-item-reason[open] > summary::before { content: "▾ "; }
+-.aqh-item-reason .aqh-reasoning-block { margin-top: 4px; }
+-
+-#aqh-status {
+-  font-size: 12px;
+-  color: #6b7080;
+-  padding: 6px 10px;
+-  border-top: 1px solid rgba(0, 0, 0, 0.05);
+-  background: rgba(247, 248, 252, 0.7);
+-  display: flex;
+-  align-items: center;
+-  gap: 6px;
+-}
+-.aqh-spinner {
+-  width: 12px; height: 12px;
+-  border: 2px solid #b9c0d4;
+-  border-top-color: #3563ff;
+-  border-radius: 50%;
+-  animation: aqh-spin 0.7s linear infinite;
+-  display: inline-block;
+-}
+-@keyframes aqh-spin { to { transform: rotate(360deg); } }
+-
+-#aqh-fab {
+-  position: fixed;
+-  right: 24px;
+-  bottom: 24px;
+-  width: 44px; height: 44px;
+-  border-radius: 50%;
+-  background: #3563ff;
+-  color: #fff;
+-  border: 0;
+-  cursor: pointer;
+-  box-shadow: 0 8px 22px rgba(53, 99, 255, 0.45);
+-  display: flex;
+-  align-items: center;
+-  justify-content: center;
+-  font-size: 18px;
+-  z-index: 2147483647;
+-  opacity: 0.85;
+-}
+-#aqh-fab:hover { opacity: 1; }
+-#aqh-fab.aqh-fab-expanded {
+-  width: auto;
+-  height: 40px;
+-  border-radius: 999px;
+-  padding: 0 6px;
+-  gap: 6px;
+-}
+-.aqh-fab-btn {
+-  appearance: none;
+-  border: 0;
+-  background: rgba(255,255,255,0.18);
+-  color: #fff;
+-  font-size: 12px;
+-  padding: 6px 10px;
+-  border-radius: 999px;
+-  cursor: pointer;
+-}
+-.aqh-fab-btn:hover { background: rgba(255,255,255,0.32); }
+-
+-.aqh-mask {
+-  position: fixed;
+-  inset: 0;
+-  background: rgba(0,0,0,0.25);
+-  z-index: 2147483646;
+-  cursor: crosshair;
+-}
+-.aqh-mask-hint {
+-  position: fixed;
+-  left: 50%;
+-  top: 12px;
+-  transform: translateX(-50%);
+-  background: rgba(0,0,0,0.72);
+-  color: #fff;
+-  padding: 6px 12px;
+-  border-radius: 999px;
+-  font-size: 12px;
+-  z-index: 2147483647;
+-}
+diff --git a/src/content.js b/src/content.js
+index 1be11ed..38e468d 100644
+--- a/src/content.js
++++ b/src/content.js
+@@ -15,11 +15,350 @@
+ 
+   const ROOT_ID = "aqh-root";
+   let cfg = null;
++  // True when this tab lives in an incognito window (reported by background).
++  let incognito = false;
+   // Per-call: result.promptMode is read inside showAnswer.
+   let promptMode = "answer";
+   // In-flight multi-provider request: { reqId, roster, items, promptMode, label }.
+   let activeReq = null;
+ 
++  // --- Hardened container ---------------------------------------------------
++  // Pages break injected UIs in a handful of ways; each one has a counter here:
++  //   * `#aqh-root{display:none!important}` / `* { ... }` resets
++  //     → the UI lives in a Shadow DOM (page CSS cannot reach inside) and the
++  //       host carries inline !important declarations (beats page !important).
++  //   * a full-screen overlay at z-index 2147483647
++  //     → the host is promoted to the top layer via the popover API.
++  //   * MutationObserver sweeps that delete unknown nodes
++  //     → a 1s tick re-attaches the host; its content (open bubble included)
++  //       survives, because it never left the detached host's shadow root.
++  //   * `window.addEventListener('click', …, true)` swallowing events
++  //     → the manifest runs at document_start and all UI clicks are delegated
++  //       through one capture listener registered before any page script.
++  // What hardening cannot do: hide the extension. Any page script can walk the
++  // DOM and see the host element, and no extension API changes that.
++  const IS_TOP_FRAME = (() => {
++    try { return window.top === window; } catch (e) { return false; }
++  })();
++
++  const HOST_STYLE = {
++    all: "initial",
++    position: "fixed",
++    inset: "0",
++    width: "100%",
++    height: "100%",
++    margin: "0",
++    padding: "0",
++    border: "0",
++    background: "transparent",
++    "z-index": "2147483647",
++    display: "block",
++    visibility: "visible",
++    opacity: "1",
++    overflow: "visible",
++    "max-width": "none",
++    "max-height": "none",
++    transform: "none",
++    filter: "none",
++    "clip-path": "none",
++    contain: "none",
++    "pointer-events": "none",
++    "mix-blend-mode": "normal",
++  };
++
++  const BUBBLE_CSS = `
++:host {
++  all: initial;
++  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", Roboto, sans-serif;
++  color: #1f2330;
++}
++
++#aqh-bubble {
++  position: fixed;
++  right: 24px;
++  bottom: 24px;
++  width: 360px;
++  max-width: 60vw;
++  max-height: 60vh;
++  background: rgba(255, 255, 255, 0.96);
++  border: 1px solid rgba(0, 0, 0, 0.08);
++  border-radius: 14px;
++  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
++  overflow: hidden;
++  display: flex;
++  flex-direction: column;
++  font-size: 14px;
++  line-height: 1.5;
++  opacity: var(--aqh-o, 0.95);
++  /* Answer text stays selectable even on pages that kill selection globally. */
++  user-select: text;
++  pointer-events: auto;
++  filter: saturate(clamp(0, (var(--aqh-o, 0.95) - 0.4) / 0.4, 1));
++}
++
++#aqh-title-glyph,
++.aqh-btn-primary,
++.aqh-consensus,
++.aqh-item-flag {
++  opacity: clamp(0.3, (var(--aqh-o, 0.95) - 0.4) / 0.4, 1);
++}
++
++#aqh-title {
++  opacity: clamp(0, (var(--aqh-o, 0.95) - 0.4) / 0.4, 1);
++}
++
++.aqh-btn-primary {
++  appearance: none;
++  border: 0;
++  background: #3563ff;
++  color: #fff;
++  padding: 6px 12px;
++  border-radius: 8px;
++  cursor: pointer;
++}
++.aqh-btn-primary:hover { filter: brightness(1.08); }
++
++#aqh-bubble.aqh-hide { display: none; }
++
++#aqh-header {
++  cursor: move;
++  background: linear-gradient(180deg, #f7f8fc 0%, #eef1f8 100%);
++  padding: 8px 10px;
++  display: flex;
++  align-items: center;
++  gap: 8px;
++  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
++  user-select: none;
++}
++#aqh-title-glyph {
++  display: inline-block;
++  width: 22px; height: 22px; line-height: 22px;
++  text-align: center;
++  background: #3563ff; color: #fff;
++  border-radius: 6px;
++  margin-right: 8px;
++  font-family: "PingFang SC","Microsoft YaHei",Heiti,sans-serif;
++  font-weight: 700; font-size: 14px;
++}
++#aqh-title-text { font-weight: 600; }
++#aqh-title {
++  font-weight: 600;
++  flex: 1;
++  font-size: 13px;
++  color: #3b3f51;
++}
++/* Incognito marker: the same code runs in an incognito window, but the user
++   deserves to see which window an answer came from. Fades with the title row. */
++#aqh-incog {
++  margin-left: 6px;
++  padding: 1px 6px;
++  border-radius: 999px;
++  background: #eef1f8;
++  border: 1px solid #dfe3ee;
++  color: #5b6273;
++  font-size: 11px;
++  font-weight: 500;
++}
++#aqh-actions { display: flex; gap: 4px; }
++#aqh-actions button {
++  appearance: none;
++  border: 0;
++  background: transparent;
++  cursor: pointer;
++  font-size: 14px;
++  padding: 4px 8px;
++  color: #5b6273;
++  border-radius: 6px;
++}
++#aqh-actions button:hover { background: rgba(0, 0, 0, 0.06); }
++
++#aqh-body { padding: 10px 12px; overflow: auto; flex: 1; }
++
++.aqh-answer-label, .aqh-reasoning-label {
++  font-size: 11px;
++  text-transform: uppercase;
++  letter-spacing: 0.04em;
++  color: #6b7080;
++  margin: 4px 0 2px;
++}
++.aqh-answer-block {
++  background: #eaf3ff;
++  border: 1px solid #cfe1ff;
++  border-radius: 10px;
++  padding: 8px 10px;
++  white-space: pre-wrap;
++  word-break: break-word;
++}
++.aqh-reasoning-block {
++  background: #fafbff;
++  border: 1px solid #eef0f6;
++  border-radius: 10px;
++  padding: 8px 10px;
++  white-space: pre-wrap;
++  word-break: break-word;
++}
++.aqh-pre {
++  background: #f3f4f8;
++  border-radius: 6px;
++  padding: 6px 8px;
++  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
++  font-size: 12px;
++  white-space: pre-wrap;
++  word-break: break-word;
++}
++.aqh-err { color: #b3261e; }
++
++/* --- Multi-provider results --------------------------------------------- */
++.aqh-consensus {
++  font-size: 12px;
++  font-weight: 600;
++  padding: 5px 10px;
++  border-radius: 8px;
++  margin-bottom: 8px;
++  border: 1px solid transparent;
++}
++.aqh-consensus.aqh-same { background: #eaf7ee; border-color: #cbe8d5; color: #1a7f42; }
++.aqh-consensus.aqh-diff { background: #fff6e8; border-color: #f2ddba; color: #9a6212; }
++.aqh-consensus.aqh-wait { background: #f2f3f8; border-color: #e4e6ef; color: #6b7080; }
++.aqh-item-pending { border-style: dashed; background: #fbfcfe; }
++.aqh-item-pending .aqh-item-ms { font-style: italic; }
++
++.aqh-item {
++  border: 1px solid #eef0f6;
++  border-radius: 10px;
++  padding: 8px 10px;
++  background: #fafbff;
++  margin-bottom: 8px;
++}
++.aqh-item:last-child { margin-bottom: 0; }
++.aqh-item-head {
++  display: flex;
++  align-items: center;
++  gap: 6px;
++  margin-bottom: 6px;
++  font-size: 12px;
++}
++.aqh-item-label { font-weight: 600; color: #3b3f51; }
++.aqh-item-model {
++  color: #6b7080;
++  background: #eef1f8;
++  border-radius: 999px;
++  padding: 1px 7px;
++  font-size: 11px;
++}
++.aqh-item-ms { color: #99a0b3; font-size: 11px; margin-left: auto; }
++.aqh-item-flag {
++  background: #fff6e8;
++  border: 1px solid #f2ddba;
++  color: #9a6212;
++  border-radius: 999px;
++  padding: 1px 7px;
++  font-size: 11px;
++}
++.aqh-item.aqh-minority { border-color: #f2ddba; background: #fffdf8; }
++.aqh-item.aqh-item-fail { border-color: #f0d5d2; background: #fdf6f5; }
++.aqh-item .aqh-answer-block { margin: 0; }
++.aqh-item-reason { margin-top: 6px; }
++.aqh-item-reason > summary {
++  cursor: pointer;
++  font-size: 11px;
++  text-transform: uppercase;
++  letter-spacing: 0.04em;
++  color: #6b7080;
++  list-style: none;
++}
++.aqh-item-reason > summary::-webkit-details-marker { display: none; }
++.aqh-item-reason > summary::before { content: "▸ "; }
++.aqh-item-reason[open] > summary::before { content: "▾ "; }
++.aqh-item-reason .aqh-reasoning-block { margin-top: 4px; }
++
++#aqh-status {
++  font-size: 12px;
++  color: #6b7080;
++  padding: 6px 10px;
++  border-top: 1px solid rgba(0, 0, 0, 0.05);
++  background: rgba(247, 248, 252, 0.7);
++  display: flex;
++  align-items: center;
++  gap: 6px;
++}
++.aqh-spinner {
++  width: 12px; height: 12px;
++  border: 2px solid #b9c0d4;
++  border-top-color: #3563ff;
++  border-radius: 50%;
++  animation: aqh-spin 0.7s linear infinite;
++  display: inline-block;
++}
++@keyframes aqh-spin { to { transform: rotate(360deg); } }
++
++#aqh-fab {
++  position: fixed;
++  right: 24px;
++  bottom: 24px;
++  width: 44px; height: 44px;
++  border-radius: 50%;
++  background: #3563ff;
++  color: #fff;
++  border: 0;
++  cursor: pointer;
++  box-shadow: 0 8px 22px rgba(53, 99, 255, 0.45);
++  display: flex;
++  align-items: center;
++  justify-content: center;
++  font-family: "PingFang SC","Microsoft YaHei",Heiti,sans-serif;
++  font-weight: 700;
++  font-size: 18px;
++  pointer-events: auto;
++  opacity: 0.85;
++}
++#aqh-fab:hover { opacity: 1; }
++#aqh-fab.aqh-fab-expanded {
++  width: auto;
++  height: 40px;
++  border-radius: 999px;
++  padding: 0 6px;
++  gap: 6px;
++}
++.aqh-fab-btn {
++  appearance: none;
++  border: 0;
++  background: rgba(255,255,255,0.18);
++  color: #fff;
++  font-size: 12px;
++  padding: 6px 10px;
++  border-radius: 999px;
++  cursor: pointer;
++}
++.aqh-fab-btn:hover { background: rgba(255,255,255,0.32); }
++
++.aqh-mask {
++  position: fixed;
++  inset: 0;
++  background: rgba(0,0,0,0.25);
++  cursor: crosshair;
++  pointer-events: auto;
++}
++.aqh-mask-hint {
++  position: fixed;
++  left: 50%;
++  top: 12px;
++  transform: translateX(-50%);
++  background: rgba(0,0,0,0.72);
++  color: #fff;
++  padding: 6px 12px;
++  border-radius: 999px;
++  font-size: 12px;
++}
++`;
++
++  let hostEl = null;
++  let shadowEl = null;
++  let healTimer = null;
++  let fabEl = null;
++  let fabExpanded = false;
++  let fabCollapseTimer = null;
++
+   function getRuntime() { return chrome.runtime; }
+ 
+   function callBg(type, payload) {
+@@ -32,15 +371,146 @@
+     });
+   }
+ 
++  function applyHostStyle(el) {
++    for (const prop of Object.keys(HOST_STYLE)) {
++      // Inline !important outranks any page stylesheet, including page !important.
++      el.style.setProperty(prop, HOST_STYLE[prop], prop === "all" ? "" : "important");
++    }
++  }
++
++  // A transformed/filtered ancestor turns position:fixed into "absolute to that
++  // ancestor", which would let the bubble scroll away with the page.
++  function createsContainingBlock(el) {
++    let cs;
++    try { cs = getComputedStyle(el); } catch (e) { return false; }
++    if (!cs) return false;
++    if (cs.transform && cs.transform !== "none") return true;
++    if (cs.filter && cs.filter !== "none") return true;
++    if (cs.backdropFilter && cs.backdropFilter !== "none") return true;
++    if (cs.perspective && cs.perspective !== "none") return true;
++    if (cs.contain && /paint|layout|strict|content/.test(cs.contain)) return true;
++    if (cs.willChange && /transform|filter|perspective/.test(cs.willChange)) return true;
++    return false;
++  }
++
++  // Where to hang the host. <body> is where injected UI conventionally lives and
++  // it dodges the common "delete stray children of <html>" cleanup script — but
++  // only when nothing in body's chain would break fixed positioning.
++  function pickParent() {
++    const body = document.body;
++    if (!body) return document.documentElement; // document_start: body not parsed yet
++    for (let el = body; el && el !== document.documentElement; el = el.parentElement) {
++      if (createsContainingBlock(el)) return document.documentElement;
++    }
++    return body;
++  }
++
++  // The popover API puts the host in the top layer, above every z-index on the
++  // page. Unsupported browsers simply keep the normal fixed positioning.
++  function enterTopLayer() {
++    if (!hostEl || typeof hostEl.showPopover !== "function") return;
++    try {
++      if (!hostEl.matches(":popover-open")) hostEl.showPopover();
++    } catch (e) { void e; }
++  }
++
+   function ensureRoot() {
+-    let root = document.getElementById(ROOT_ID);
+-    if (root) return root;
+-    root = document.createElement("div");
+-    root.id = ROOT_ID;
+-    document.documentElement.appendChild(root);
+-    return root;
++    if (!hostEl) {
++      const existing = document.getElementById(ROOT_ID);
++      if (existing && existing.shadowRoot) {
++        hostEl = existing;
++        shadowEl = existing.shadowRoot;
++      } else {
++        if (existing) existing.remove();
++        hostEl = document.createElement("div");
++        hostEl.id = ROOT_ID;
++        hostEl.setAttribute("popover", "manual");
++        applyHostStyle(hostEl);
++        shadowEl = hostEl.attachShadow({ mode: "open" });
++        const style = document.createElement("style");
++        style.textContent = BUBBLE_CSS;
++        shadowEl.appendChild(style);
++      }
++    }
++    // After a page DOM sweep the host is detached on purpose: put it back, and
++    // the bubble that lives inside its shadow root comes back with it.
++    const parent = pickParent();
++    if (hostEl.parentNode !== parent) parent.appendChild(hostEl);
++    enterTopLayer();
++    return hostEl;
++  }
++
++  // Everything UI-side is looked up inside the shadow root.
++  function q(id) {
++    if (shadowEl) {
++      const el = shadowEl.getElementById(id);
++      if (el) return el;
++    }
++    return document.getElementById(id);
++  }
++
++  function uiIsLive() {
++    return !!(q("aqh-bubble") || q("aqh-fab"));
++  }
++
++  function startHealing() {
++    if (!IS_TOP_FRAME || healTimer) return;
++    healTimer = setInterval(() => {
++      if (!uiIsLive()) { stopHealing(); return; }
++      ensureRoot(); // re-attach after a sweep, re-enter the top layer
++    }, 1000);
++  }
++
++  function stopHealing() {
++    if (healTimer) { clearInterval(healTimer); healTimer = null; }
++  }
++
++  function stopHealingIfIdle() {
++    if (!uiIsLive()) stopHealing();
+   }
+ 
++  // One capture-phase handler for every button in the UI, registered while the
++  // document is still empty so a page listener on window/document cannot eat
++  // the click before it reaches us.
++  function onUiClick(e) {
++    if (!hostEl) return;
++    const path = typeof e.composedPath === "function" ? e.composedPath() : [];
++    if (!path.includes(hostEl)) return;
++    let actEl = null;
++    for (const node of path) {
++      if (node === hostEl) break;
++      if (node instanceof Element && node.hasAttribute("data-act")) { actEl = node; break; }
++    }
++    if (!actEl) return;
++    e.preventDefault();
++    e.stopPropagation();
++    runAction(actEl.getAttribute("data-act"), actEl.getAttribute("data-k"));
++  }
++
++  function runAction(act, k) {
++    if (act === "close") return closeBubble();
++    if (act === "min") {
++      const bubble = q("aqh-bubble");
++      if (bubble) bubble.classList.toggle("aqh-hide");
++      return;
++    }
++    if (act === "settings" || act === "openopts") return openSettings();
++    if (act === "fab-toggle") {
++      if (!fabExpanded) { renderFab(true); return; }
++      handleTrigger("selection");
++      renderFab(false);
++      return;
++    }
++    if (act === "fab-run") {
++      handleTrigger(k);
++      renderFab(false);
++    }
++  }
++
++  // Capture phase on window, installed before page scripts (see manifest
++  // run_at: document_start).
++  window.addEventListener("click", onUiClick, true);
++
+   function getCssOpacity() {
+     const v = Number((cfg && cfg.bubbleOpacity) ?? 0.95);
+     if (!Number.isFinite(v)) return 0.95;
+@@ -57,15 +527,21 @@
+ 
+   function renderBubble(html, opts) {
+     opts = opts || {};
+-    const root = ensureRoot();
+-    root.innerHTML = "";
++    // Only the top frame owns UI: with all_frames enabled, a subframe that drew
++    // its own bubble would be clipped by the iframe box.
++    if (!IS_TOP_FRAME) return;
++    ensureRoot();
++    const stale = q("aqh-bubble");
++    if (stale) stale.remove();
+     const wrap = document.createElement("div");
+     wrap.id = "aqh-bubble";
+     wrap.style.setProperty("--aqh-o", String(getCssOpacity()));
+     if (opts.hidden) wrap.classList.add("aqh-hide");
+     wrap.innerHTML =
+       '<div id="aqh-header">' +
+-        '<div id="aqh-title"><span id="aqh-title-glyph">王</span><span id="aqh-title-text">QuizKing · 答题王</span></div>' +
++        '<div id="aqh-title"><span id="aqh-title-glyph">王</span><span id="aqh-title-text">QuizKing · 答题王</span>' +
++          (incognito ? '<span id="aqh-incog" title="当前标签页处于无痕窗口">无痕</span>' : "") +
++        '</div>' +
+         '<div id="aqh-actions">' +
+           '<button data-act="settings" title="设置">⚙</button>' +
+           '<button data-act="min" title="隐藏">—</button>' +
+@@ -74,19 +550,25 @@
+       '</div>' +
+       '<div id="aqh-body">' + html + '</div>' +
+       '<div id="aqh-status">' + (opts.status || "") + '</div>';
+-    root.appendChild(wrap);
+-
+-    wrap.querySelector('[data-act="close"]').addEventListener("click", closeBubble);
+-    wrap.querySelector('[data-act="min"]').addEventListener("click", () => wrap.classList.toggle("aqh-hide"));
+-    wrap.querySelector('[data-act="settings"]').addEventListener("click", () => {
+-      try { chrome.runtime.openOptionsPage(); } catch (e) { void e; }
+-    });
++    shadowEl.appendChild(wrap);
+ 
+     enableDrag(wrap, wrap.querySelector("#aqh-header"));
++    startHealing();
++  }
++
++  // Ask background to open the options page: from an incognito window Chrome
++  // cannot show the extension's own page in a tab, so background opens it in a
++  // regular window instead of silently doing nothing.
++  function openSettings() {
++    callBg("aqh/open-options").then((res) => {
++      if (res && res.ok === false) {
++        log("openOptions failed", res.error);
++      }
++    });
+   }
+ 
+   function setStatus(text, loading) {
+-    const status = document.getElementById("aqh-status");
++    const status = q("aqh-status");
+     if (!status) return;
+     status.innerHTML = loading
+       ? '<span class="aqh-spinner"></span><span>' + escapeHtml(text) + '</span>'
+@@ -94,8 +576,10 @@
+   }
+ 
+   function closeBubble() {
+-    const root = document.getElementById(ROOT_ID);
+-    if (root) root.innerHTML = "";
++    const bubble = q("aqh-bubble");
++    if (bubble) bubble.remove();
++    activeReq = null;
++    stopHealingIfIdle();
+   }
+ 
+   function enableDrag(box, handle) {
+@@ -150,7 +634,8 @@
+ 
+   function pickRectOnPage() {
+     return new Promise((resolve) => {
+-      const host = document.documentElement || document.body;
++      ensureRoot();
++      const host = shadowEl; // the crop overlay belongs to our shadow root too
+ 
+       const mask = document.createElement("div");
+       mask.id = "aqh-mask";
+@@ -176,9 +661,9 @@
+         "pointer-events:none;display:none;z-index:2147483647;";
+       host.appendChild(sel);
+ 
+-      const fab = document.getElementById("aqh-fab");
++      const fab = q("aqh-fab");
+       if (fab) fab.style.pointerEvents = "none";
+-      const bubble = document.getElementById("aqh-bubble");
++      const bubble = q("aqh-bubble");
+       const prevBubblePE = bubble ? bubble.style.pointerEvents : "";
+       if (bubble) bubble.style.pointerEvents = "none";
+ 
+@@ -284,14 +769,10 @@
+       renderBubble(
+         '<div class="aqh-err">未配置 API Key。</div>' +
+         '<div style="margin-top:8px">' +
+-          '<button id="aqh-openopts" class="aqh-btn-primary">打开设置</button>' +
++          '<button id="aqh-openopts" class="aqh-btn-primary" data-act="openopts">打开设置</button>' +
+         '</div>',
+         { status: "需要先在选项页填写 API Key" }
+       );
+-      const b = document.getElementById("aqh-openopts");
+-      if (b) b.addEventListener("click", () => {
+-        try { chrome.runtime.openOptionsPage(); } catch (e) { void e; }
+-      });
+       return;
+     }
+     const n = ((cfg && cfg.providers) || []).filter((p) => p.enabled && p.hasKey).length;
+@@ -338,7 +819,8 @@
+   function renderProgress() {
+     const st = activeReq;
+     if (!st) return;
+-    const body = document.getElementById("aqh-body");
++    ensureRoot(); // insurance: a page sweep may have detached the host
++    const body = q("aqh-body");
+     if (!body) return;
+     const items = currentItems();
+     body.innerHTML = ""; // re-render the whole set; each arrival replaces the previous frame
+@@ -350,7 +832,7 @@
+   }
+ 
+   function appendError(msg) {
+-    const body = document.getElementById("aqh-body");
++    const body = q("aqh-body");
+     if (!body) return;
+     const div = document.createElement("div");
+     div.className = "aqh-err";
+@@ -387,7 +869,8 @@
+   }
+ 
+   function showAnswer(r) {
+-    const body = document.getElementById("aqh-body");
++    ensureRoot(); // insurance: a page sweep may have detached the host
++    const body = q("aqh-body");
+     if (!body) return;
+     const items = Array.isArray(r.items) ? r.items : null;
+     log("showAnswer items=", items ? items.length : "(legacy)", "mode=", r.promptMode);
+@@ -585,63 +1068,58 @@
+   }
+ 
+   function toggleFab() {
+-    const existing = document.getElementById("aqh-fab");
+-    if (existing) { existing.remove(); return false; }
++    const existing = q("aqh-fab");
++    if (existing) {
++      existing.remove();
++      fabEl = null;
++      stopHealingIfIdle();
++      return false;
++    }
+     ensureFab();
+     return true;
+   }
+ 
++  function renderFab(expanded) {
++    if (!fabEl) return;
++    fabExpanded = !!expanded;
++    if (expanded) {
++      fabEl.classList.add("aqh-fab-expanded");
++      fabEl.innerHTML =
++        '<span class="aqh-fab-btn" data-act="fab-run" data-k="selection">选区</span>' +
++        '<span class="aqh-fab-btn" data-act="fab-run" data-k="visible">截图</span>' +
++        '<span class="aqh-fab-btn" data-act="fab-run" data-k="page">整页</span>' +
++        '<span class="aqh-fab-btn" data-act="fab-run" data-k="toggle">气泡</span>';
++    } else {
++      fabEl.classList.remove("aqh-fab-expanded");
++      fabEl.textContent = "王";
++    }
++  }
++
+   function ensureFab() {
+-    let fab = document.getElementById("aqh-fab");
+-    if (fab) return fab;
+-    fab = document.createElement("button");
+-    fab.id = "aqh-fab";
+-    fab.title = "QuizKing · 答题王";
+-    fab.textContent = "王";
+-    fab.style.fontFamily = '"PingFang SC","Microsoft YaHei",Heiti,sans-serif';
+-    fab.style.fontWeight = "700";
+-    document.documentElement.appendChild(fab);
+-
+-    let expanded = false;
+-    let collapseTimer = null;
+-    const render = () => {
+-      if (expanded) {
+-        fab.classList.add("aqh-fab-expanded");
+-        fab.innerHTML =
+-          '<span class="aqh-fab-btn" data-k="selection">选区</span>' +
+-          '<span class="aqh-fab-btn" data-k="visible">截图</span>' +
+-          '<span class="aqh-fab-btn" data-k="page">整页</span>' +
+-          '<span class="aqh-fab-btn" data-k="toggle">气泡</span>';
+-        fab.querySelectorAll("[data-k]").forEach((el) => {
+-          el.addEventListener("click", (e) => {
+-            e.stopPropagation();
+-            const k = el.getAttribute("data-k");
+-            handleTrigger(k);
+-            collapse();
+-          });
+-        });
+-      } else {
+-        fab.classList.remove("aqh-fab-expanded");
+-        fab.textContent = "王";
+-      }
+-    };
+-    const expand = () => { expanded = true; render(); };
+-    const collapse = () => { expanded = false; render(); };
+-    fab.addEventListener("mouseenter", () => { clearTimeout(collapseTimer); expand(); });
+-    fab.addEventListener("mouseleave", () => {
+-      clearTimeout(collapseTimer);
+-      collapseTimer = setTimeout(collapse, 350);
+-    });
+-    fab.addEventListener("click", (e) => {
+-      e.stopPropagation();
+-      if (!expanded) { expand(); return; }
+-      handleTrigger("selection");
+-      collapse();
++    if (!IS_TOP_FRAME) return null;
++    ensureRoot();
++    if (fabEl && fabEl.isConnected) return fabEl;
++    fabEl = q("aqh-fab");
++    if (fabEl) return fabEl;
++    fabEl = document.createElement("button");
++    fabEl.id = "aqh-fab";
++    fabEl.title = "QuizKing · 答题王";
++    fabEl.setAttribute("data-act", "fab-toggle");
++    shadowEl.appendChild(fabEl);
++    fabEl.addEventListener("mouseenter", () => { clearTimeout(fabCollapseTimer); renderFab(true); });
++    fabEl.addEventListener("mouseleave", () => {
++      clearTimeout(fabCollapseTimer);
++      fabCollapseTimer = setTimeout(() => renderFab(false), 350);
+     });
+-    return fab;
++    renderFab(false);
++    startHealing();
++    return fabEl;
+   }
+ 
+   async function handleTrigger(kind) {
++    // Insurance: put the host back before drawing instead of waiting for the
++    // next heal tick.
++    ensureRoot();
+     if (kind === "toggle") {
+       // Toggle the 王字 FAB (default hidden, click to summon).
+       toggleFab();
+@@ -649,12 +1127,19 @@
+     }
+     try {
+       if (kind === "selection") {
+-        const text = getSelectionText();
++        let text = getSelectionText();
++        let fromFrame = false;
++        if (!text) {
++          // The question may live inside an iframe the top frame cannot read:
++          // background asks every frame and hands back the longest selection.
++          const r = await callBg("aqh/collect-frame-selection");
++          if (r && r.ok && r.text) { text = r.text; fromFrame = true; }
++        }
+         if (!text) {
+           renderBubble('<div class="aqh-err">未选中文本。</div>', { status: "请先在页面选中文字" });
+           return;
+         }
+-        await askAndShow({ mode: "text", text }, "[selection]\n" + text);
++        await askAndShow({ mode: "text", text }, (fromFrame ? "[selection in frame]\n" : "[selection]\n") + text);
+       } else if (kind === "visible") {
+         const dataUrl = await chooseCropAndCapture();
+         await askAndShow(
+@@ -676,6 +1161,23 @@
+ 
+   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+     if (!msg || !msg.type) return;
++    // A subframe only answers "do you have a selection?"; every UI trigger and
++    // every render stays in the top frame.
++    if (msg.type === "aqh/want-selection") {
++      const text = getSelectionText();
++      if (text) {
++        try {
++          chrome.runtime.sendMessage(
++            { type: "aqh/selection-part", payload: { reqId: msg.payload && msg.payload.reqId, text } },
++            () => { void chrome.runtime.lastError; }
++          );
++        } catch (e) { void e; }
++      }
++      return sendResponse({ ok: true, has: !!text });
++    }
++    if (msg.type === "aqh/capture" && !IS_TOP_FRAME) return sendResponse({ ok: false, reason: "not-top-frame" });
++    if (msg.type === "aqh/close" && !IS_TOP_FRAME) return sendResponse({ ok: false, reason: "not-top-frame" });
++    if (msg.type === "aqh/show-fab" && !IS_TOP_FRAME) return sendResponse({ ok: false, reason: "not-top-frame" });
+     if (msg.type === "aqh/capture") {
+       handleTrigger(msg.payload && msg.payload.kind || "selection");
+       return sendResponse({ ok: true });
+@@ -710,7 +1212,7 @@
+           // Single provider: plain layout (or a lone failure card).
+           showAnswer({ items, promptMode: p.promptMode || st.promptMode });
+         } else {
+-          const body = document.getElementById("aqh-body");
++          const body = q("aqh-body");
+           if (body) {
+             body.innerHTML = "";
+             renderMulti(body, items, p.promptMode || st.promptMode, st.label);
+@@ -728,14 +1230,18 @@
+     if (!Number.isFinite(v)) return;
+     if (!cfg) cfg = {};
+     cfg.bubbleOpacity = v;
+-    const bubble = document.getElementById("aqh-bubble");
++    const bubble = q("aqh-bubble");
+     if (bubble) bubble.style.setProperty("--aqh-o", String(getCssOpacity()));
+   });
+ 
+   (async () => {
+-    cfg = ((await callBg("aqh/get-config")) || {}).cfg || null;
++    // Subframes carry no UI and no config worth fetching.
++    if (!IS_TOP_FRAME) return;
++    const res = (await callBg("aqh/get-config")) || {};
++    cfg = res.cfg || null;
++    incognito = !!res.incognito;
+     if (cfg && cfg.promptMode) promptMode = cfg.promptMode;
+-    log("boot promptMode=", promptMode);
++    log("boot promptMode=", promptMode, "incognito=", incognito);
+     // FAB is hidden by default; user summons it via popup / shortcut / right-click.
+   })();
+ })();
+diff --git a/src/manifest.json b/src/manifest.json
+index 697dad2..5d3d133 100644
+--- a/src/manifest.json
++++ b/src/manifest.json
+@@ -3,8 +3,9 @@
+   "name": "__MSG_extName__",
+   "default_locale": "zh_CN",
+   "description": "__MSG_extDescription__",
+-  "version": "0.3.0",
++  "version": "0.4.0",
+   "minimum_chrome_version": "114",
++  "incognito": "spanning",
+   "action": {
+     "default_title": "QuizKing · 答题王",
+     "default_popup": "popup.html"
+@@ -49,9 +50,9 @@
+     {
+       "matches": ["<all_urls>"],
+       "js": ["content.js"],
+-      "css": ["bubble.css"],
+-      "run_at": "document_idle",
+-      "all_frames": false
++      "run_at": "document_start",
++      "all_frames": true,
++      "match_about_blank": true
+     }
+   ],
+   "icons": {
+diff --git a/src/options.css b/src/options.css
+index e6a3716..e5a27da 100644
+--- a/src/options.css
++++ b/src/options.css
+@@ -52,6 +52,8 @@ button.primary { background: #3563ff; color: #fff; border-color: #3563ff; }
+ button.primary:hover { background: #2a4edb; color: #fff; }
+ .row { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+ .muted { color: #6b7080; font-size: 12px; }
++.incog-ok { color: #1a7f42; }
++.incog-bad { color: #b3261e; }
+ 
+ /* Provider cards (multi-API) */
+ .providers { display: flex; flex-direction: column; gap: 12px; margin: 10px 0 4px; }
+diff --git a/src/options.html b/src/options.html
+index 855bcca..f7808f8 100644
+--- a/src/options.html
++++ b/src/options.html
+@@ -76,6 +76,29 @@
+     <div id="historyBox" class="history"></div>
+   </section>
+ 
++  <section>
++    <h2>无痕模式 / 受限环境</h2>
++    <p class="muted">
++      Chrome 默认不允许扩展在无痕窗口里运行，必须手动开启一次（浏览器安全设计，任何插件都无法用代码绕过）。
++      开启后：抓题、快捷键、右键菜单、气泡在无痕窗口都能正常工作，配置在普通窗口与无痕窗口之间共享。
++    </p>
++    <div class="row">
++      <button id="incogOpen" type="button">打开扩展详情页</button>
++      <span id="incogState" class="muted">检测中…</span>
++    </div>
++    <p class="muted">
++      开启路径：<code>chrome://extensions</code> → QuizKing 「详情」 → 打开「允许在无痕模式下使用」。
++    </p>
++    <label class="chk">
++      <input id="saveHistoryIncognito" type="checkbox" />
++      无痕会话也保存历史记录（默认关闭）
++    </label>
++    <p class="muted">
++      在无痕窗口点气泡的 ⚙ 或 popup 的「设置」时，Chrome 不允许把扩展页面加载进无痕标签，
++      插件会自动改在普通窗口打开设置页。
++    </p>
++  </section>
++
+   <section>
+     <h2>快捷键</h2>
+     <p class="muted">在 <code>chrome://extensions/shortcuts</code> 中可重新绑定这 4 个命令。Windows / Linux 用 <kbd>Ctrl</kbd>，macOS 用 <kbd>⌘ Command</kbd>。</p>
+diff --git a/src/options.js b/src/options.js
+index 8b5aa78..a7780eb 100644
+--- a/src/options.js
++++ b/src/options.js
+@@ -7,6 +7,7 @@ const FIELDS = [
+   "reasoningPrompt",
+   "bubbleOpacity",
+   "saveHistory",
++  "saveHistoryIncognito",
+ ];
+ 
+ // Legacy single-endpoint keys, read once to seed the provider list.
+@@ -148,6 +149,8 @@ function load() {
+     $("bubbleOpacity").value = (cfg.bubbleOpacity === undefined ? 0.95 : cfg.bubbleOpacity);
+     $("opaV").textContent = Number($("bubbleOpacity").value).toFixed(2);
+     $("saveHistory").checked = (cfg.saveHistory === undefined ? true : !!cfg.saveHistory);
++    $("saveHistoryIncognito").checked = (cfg.saveHistoryIncognito === true);
++    refreshIncognitoState();
+     // Migrate any pre-existing 'answer' mode users to 'reason' so the answer-only path is gone.
+     const mode = (cfg.promptMode === "answer" || !cfg.promptMode) ? "reason" : cfg.promptMode;
+     const radio = document.querySelector('input[name="promptMode"][value="' + mode + '"]');
+@@ -186,6 +189,7 @@ function save() {
+     reasoningPrompt: $("reasoningPrompt").value,
+     bubbleOpacity: Number($("bubbleOpacity").value),
+     saveHistory: $("saveHistory").checked,
++    saveHistoryIncognito: $("saveHistoryIncognito").checked,
+   };
+   chrome.storage.sync.set(next, () => {
+     const err = chrome.runtime && chrome.runtime.lastError;
+@@ -205,6 +209,36 @@ function save() {
+   });
+ }
+ 
++// --- Incognito access -----------------------------------------------------
++
++// Only the user can flip this switch; Chrome exposes the state so we can point
++// at the exact page instead of pretending it is a bug.
++function refreshIncognitoState() {
++  const el = $("incogState");
++  if (!el) return;
++  try {
++    chrome.extension.isAllowedIncognitoAccess((allowed) => {
++      void chrome.runtime.lastError;
++      el.textContent = allowed
++        ? "✓ 已允许在无痕模式下使用"
++        : "✗ 尚未允许在无痕模式下使用";
++      el.classList.toggle("incog-ok", !!allowed);
++      el.classList.toggle("incog-bad", !allowed);
++    });
++  } catch (e) {
++    el.textContent = "无法检测无痕权限：" + ((e && e.message) || String(e));
++  }
++}
++
++function openExtensionsPage() {
++  const url = "chrome://extensions/?id=" + chrome.runtime.id;
++  chrome.tabs.create({ url }, () => {
++    if (chrome.runtime.lastError) {
++      $("incogState").textContent = "请手动打开 chrome://extensions 找到 QuizKing";
++    }
++  });
++}
++
+ // --- Connection test ------------------------------------------------------
+ 
+ async function testProvider(card) {
+@@ -261,6 +295,7 @@ function loadHistory() {
+       div.innerHTML =
+         '<div><b>' + new Date(h.ts).toLocaleString() + '</b> · <span class="muted">' +
+         escapeHtml(h.provider || "") + " " + escapeHtml(h.model || "") + " " + escapeHtml(h.mode || "") +
++        (h.incognito ? " 无痕" : "") +
+         '</span></div>' +
+         '<div class="muted">问题：' + escapeHtml(h.question || "").slice(0, 200) + '</div>' +
+         '<div><b>答案：</b>' + escapeHtml(h.answer || "") + '</div>' +
+@@ -285,6 +320,7 @@ document.addEventListener("DOMContentLoaded", () => {
+   $("saveBtn").addEventListener("click", save);
+   $("addProvider").addEventListener("click", addProvider);
+   $("testBtn").addEventListener("click", testAll);
++  $("incogOpen").addEventListener("click", openExtensionsPage);
+   $("clearHistory").addEventListener("click", clearHistory);
+   $("viewHistory").addEventListener("click", loadHistory);
+   // Mark the form dirty on any change. The user must still click 保存 to persist.
+@@ -292,7 +328,7 @@ document.addEventListener("DOMContentLoaded", () => {
+     r.addEventListener("change", () => { refreshPromptBoxes(); markDirty(); });
+   });
+   const trackedIds = [
+-    "systemPrompt", "reasoningPrompt", "saveHistory",
++    "systemPrompt", "reasoningPrompt", "saveHistory", "saveHistoryIncognito",
+   ];
+   trackedIds.forEach((id) => {
+     const el = $(id);
+@@ -311,4 +347,4 @@ document.addEventListener("DOMContentLoaded", () => {
+   window.addEventListener("beforeunload", (e) => {
+     if (dirty) { e.preventDefault(); e.returnValue = ""; }
+   });
+-});
+\ No newline at end of file
++});
+diff --git a/src/popup.html b/src/popup.html
+index 34f0ebe..0f87c94 100644
+--- a/src/popup.html
++++ b/src/popup.html
+@@ -44,6 +44,12 @@
+   <div class="section">
+     <div class="muted" id="status">就绪。</div>
+   </div>
++  <div class="section" id="incogBox" style="display:none">
++    <div class="muted" id="incogText"></div>
++    <div class="row" style="margin-top:6px">
++      <button id="incogEnable" type="button">开启无痕权限</button>
++    </div>
++  </div>
+   <div class="footer">
+     <a id="opts">设置</a>
+     <span class="muted" id="keyState"></span>
+diff --git a/src/popup.js b/src/popup.js
+index 7465058..07c8e26 100644
+--- a/src/popup.js
++++ b/src/popup.js
+@@ -1,5 +1,5 @@
+ /** @license MIT — QuizKing · 答题王 toolbar popup. */
+-document.addEventListener("DOMContentLoaded", () => {
++document.addEventListener("DOMContentLoaded", async () => {
+   document.querySelectorAll("[data-k]").forEach((btn) => {
+     btn.addEventListener("click", async () => {
+       const k = btn.getAttribute("data-k");
+@@ -9,8 +9,17 @@ document.addEventListener("DOMContentLoaded", () => {
+       const msg = (k === "show-fab")
+         ? { type: "aqh/show-fab" }
+         : { type: "aqh/capture", payload: { kind: k } };
+-      chrome.tabs.sendMessage(tab.id, msg, (res) => {
+-        if (chrome.runtime.lastError) { $("status").textContent = "当前页面不可用"; return; }
++      // frameId 0: with all_frames enabled every frame has content.js, but only
++      // the top frame owns the bubble.
++      chrome.tabs.sendMessage(tab.id, msg, { frameId: 0 }, (res) => {
++        if (chrome.runtime.lastError) {
++          $("status").textContent = explainUnavailable(tab);
++          return;
++        }
++        if (res && res.ok === false) {
++          $("status").textContent = explainUnavailable(tab);
++          return;
++        }
+         if (k === "show-fab" && res && typeof res.shown === "boolean") {
+           $("status").textContent = res.shown ? "已召唤 王字气泡" : "已收起 王字气泡";
+         }
+@@ -18,7 +27,20 @@ document.addEventListener("DOMContentLoaded", () => {
+       if (k !== "show-fab") $("status").textContent = "已发送：" + k;
+     });
+   });
+-  $("opts").addEventListener("click", () => chrome.runtime.openOptionsPage());
++  $("opts").addEventListener("click", openOptionsPageSafe);
++  if ($("incogEnable")) {
++    $("incogEnable").addEventListener("click", () => {
++      chrome.tabs.create({ url: "chrome://extensions/?id=" + chrome.runtime.id }, () => {
++        void chrome.runtime.lastError;
++      });
++    });
++  }
++
++  // The popup knows which window it was opened from; the background knows
++  // whether incognito access was granted. Together they decide the hint.
++  const [active] = await chrome.tabs.query({ active: true, currentWindow: true }).catch(() => []);
++  const inIncognito = !!(active && active.incognito);
++  if (inIncognito) $("status").textContent = "当前为无痕窗口。";
+ 
+   chrome.runtime.sendMessage({ type: "aqh/test" }, (res) => {
+     if (!res || !res.ok) {
+@@ -29,7 +51,55 @@ document.addEventListener("DOMContentLoaded", () => {
+     $("keyState").textContent = res.hasKey
+       ? ("API Key ✓" + (n > 1 ? (" · " + n + " 个服务商") : ""))
+       : "未配置 API Key";
++    renderIncognitoHint(!!res.incognitoAccess, inIncognito);
+   });
+ });
+ 
++function renderIncognitoHint(allowed, inIncognito) {
++  const box = $("incogBox");
++  if (!box) return;
++  if (!allowed) {
++    $("incogText").textContent =
++      "尚未允许在无痕模式下使用。打开扩展详情页勾选「允许在无痕模式下使用」，否则无痕窗口里抓题不会有反应。";
++    $("incogEnable").style.display = "";
++    box.style.display = "";
++    return;
++  }
++  if (inIncognito) {
++    $("incogText").textContent = "无痕权限已开启，本窗口可正常抓题。";
++    $("incogEnable").style.display = "none";
++    box.style.display = "";
++  }
++}
++
++// Chrome itself forbids content scripts on a handful of page types — no amount
++// of extension code can run there, so say which one instead of "不可用".
++function explainUnavailable(tab) {
++  const url = (tab && tab.url) || "";
++  if (/^chrome:\/\//.test(url)) return "chrome:// 页面不允许扩展注入（浏览器限制）";
++  if (/^edge:\/\//.test(url)) return "edge:// 页面不允许扩展注入（浏览器限制）";
++  if (/^devtools:\/\//.test(url)) return "DevTools 页面不支持扩展注入";
++  if (/^https:\/\/chromewebstore\.google\.com\//.test(url)) return "扩展商店页面禁止注入（浏览器限制）";
++  if (/^file:\/\//.test(url)) return "本地文件需在扩展详情页开启「允许访问文件网址」";
++  if (/\.pdf($|[?#])/i.test(url)) return "PDF 阅读器内不跑内容脚本，请改用「抓取截图」";
++  if (/^chrome-extension:\/\//.test(url)) return "其他扩展的页面不允许注入（浏览器限制）";
++  return "当前页面未响应：可能刚加载完，刷新后重试；若持续如此，站点或策略在限制扩展";
++}
++
++// Settings opened from an incognito window cannot be an incognito tab, so let
++// background put it in a regular window instead of failing quietly.
++function openOptionsPageSafe() {
++  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
++    const tab = tabs && tabs[0];
++    chrome.runtime.sendMessage(
++      { type: "aqh/open-options", payload: { incognito: !!(tab && tab.incognito) } },
++      (res) => {
++        if (chrome.runtime.lastError || !res || !res.ok) {
++          $("status").textContent = "打开设置失败，请到 chrome://extensions 打开选项页";
++        }
++      }
++    );
++  });
++}
++
+ function $(id) { return document.getElementById(id); }
+diff --git a/tools/README.md b/tools/README.md
+new file mode 100644
+index 0000000..87bf87d
+--- /dev/null
++++ b/tools/README.md
+@@ -0,0 +1,55 @@
++# tools/ — 无痕模式冒烟测试
++
++这套脚本用来在本机真机验证「无痕 / 受限环境」相关改动，不依赖真实 LLM（抓题链路走本地 mock）。
++
++## 为什么用 Edge 而不是 Chrome
++
++Google Chrome 官方版从内核层拒绝了命令行加载未打包扩展：
++
++```
++--load-extension is not allowed in Google Chrome, ignoring.
++```
++
++所以自动化验证改用同内核的 Microsoft Edge（可直接用 CLI 加载扩展）。**手工验证仍建议用你日常的 Chrome**：`chrome://extensions` → 开发者模式 → 加载已解压 → 选 `src/`。
++
++## 跑一遍
++
++```powershell
++# 1) 本地测试页 + 假 LLM
++Start-Process python -ArgumentList '-m','http.server','8123','--bind','127.0.0.1','--directory','<本仓库>\_testpage' -WindowStyle Hidden
++Start-Process node   -ArgumentList 'tools\mock-llm.mjs' -WindowStyle Hidden
++
++# 2) 用 Edge 载入扩展（headless 亦可）
++Start-Process "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe" -ArgumentList `
++  "--user-data-dir=$env:TEMP\quizking-ext","--load-extension=<本仓库>\src","--disable-extensions-except=<本仓库>\src",`
++  "--remote-debugging-port=9334","--no-first-run","--headless=new","http://127.0.0.1:8123/"
++
++# 3) 验证
++node tools\verify-incognito.mjs http://127.0.0.1:9334 http://127.0.0.1:8123/ http://127.0.0.1:8135/v1
++```
++
++`verify-incognito.mjs` 覆盖：扩展 SW 启动、manifest 的 `incognito`/version、内容脚本注入、`aqh/get-config`
++通道与 `incognito` 标记、`aqh/test`、`aqh/open-options` 两条分支（普通窗口 / 无痕分支）、气泡渲染、
++抓题全链路（立即回执 → 增量推送 → 历史落盘）。
++
++## 另外两个脚本
++
++```powershell
++# 「网页屏蔽扩展」的各种手法，逐条实测（会开一堆标签页，约 1 分钟）
++node tools\probe-attacks.mjs http://127.0.0.1:9334 http://127.0.0.1:8123/attacks.html
++
++# 题目在 iframe 里时，划词通道能否跨帧拿到选区
++node tools\verify-frame.mjs http://127.0.0.1:9334 http://127.0.0.1:8123/frame.html
++```
++
++`probe-attacks.mjs` 会依次打开 `_testpage/attacks.html?atk=<每种手法>`，对每个页面检查四件事：
++UI 是否渲染、是否可见、`elementFromPoint` 命中的是不是我们自己（有没有被盖住）、✕ 按钮是否点得动；
++最后再从页面侧把宿主节点删掉一次，验证自愈能不能把它挂回来。
++
++## 已知边界
++
++真要压测「无痕标签页」本身，需要先由人在 `chrome://extensions` 里打开「允许在无痕模式下使用」——
++这一步是浏览器安全设计，脚本无法代劳（改 profile 的 Secure Preferences 会破坏其 HMAC 校验）。
++未开启时 `chrome.extension.isAllowedIncognitoAccess()` 返回 `false`，无痕窗口里不会注入内容脚本。
++
++`atk=sweepbody`（持续清空 `<body>` 新增节点）是刻意保留的**必败**用例，用来标记已知上限，别把它当 bug 修。
+diff --git a/tools/mock-llm.mjs b/tools/mock-llm.mjs
+new file mode 100644
+index 0000000..cd96f71
+--- /dev/null
++++ b/tools/mock-llm.mjs
+@@ -0,0 +1,28 @@
++// mock-llm.mjs — 本地假 LLM，验证抓题链路不依赖真实 API。
++import http from "node:http";
++
++const server = http.createServer((req, res) => {
++  let body = "";
++  req.on("data", (c) => (body += c));
++  req.on("end", () => {
++    const headers = {
++      "Content-Type": "application/json",
++      "Access-Control-Allow-Origin": "*",
++      "Access-Control-Allow-Headers": "*",
++      "Access-Control-Allow-Methods": "*",
++    };
++    if (req.method === "OPTIONS") {
++      res.writeHead(204, headers);
++      res.end();
++      return;
++    }
++    const content = JSON.stringify({
++      answer: "42",
++      reasoning: "本地 mock：仅用于校验插件通道，1+1 的十进制结果是 2。",
++    });
++    res.writeHead(200, headers);
++    res.end(JSON.stringify({ choices: [{ message: { role: "assistant", content } }] }));
++  });
++});
++
++server.listen(8135, "127.0.0.1", () => console.log("mock llm on 8135"));
+diff --git a/tools/probe-attacks.mjs b/tools/probe-attacks.mjs
+new file mode 100644
+index 0000000..ae7b7bc
+--- /dev/null
++++ b/tools/probe-attacks.mjs
+@@ -0,0 +1,193 @@
++// probe-attacks.mjs — 用真实内核逐个验证「网页能怎么弄坏扩展 UI」。
++// 用法: node tools/probe-attacks.mjs [cdpBase] [attacksUrl]
++// 每个攻击模式都在新标签页里跑：注入 → 抓题渲染气泡 → 检查 可见/在最上层/可点击/被删后能否自愈。
++const CDP = process.argv[2] || "http://127.0.0.1:9338";
++const BASE = process.argv[3] || "http://127.0.0.1:8123/attacks.html";
++
++const ATTACKS = [
++  ["none", "对照组：无攻击"],
++  ["sweep", "MutationObserver + 定时清理：删除所有注入到 <html> 的未知节点"],
++  ["sweepbody", "更狠一档：连 <body> 里新增的节点也定时+MutationObserver 清掉"],
++  ["wipeonce", "单次暴力删除扩展宿主节点"],
++  ["css", "页内 CSS 强杀：#aqh-root / * / [data-act] + user-select:none"],
++  ["zfight", "全屏遮罩抢 z-index=2147483647，并反复后置"],
++  ["blockclick", "window 捕获阶段吞掉 click/pointerdown"],
++  ["monkey", "页面世界猴子补丁：appendChild/remove/removeChild/MutationObserver/getSelection"],
++  ["selectnone", "禁用文本选择（划词通道）"],
++  ["transformbody", "body 带 transform（会破坏 fixed 定位），应自动回退挂到 <html>"],
++];
++
++const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
++const OPEN = [];
++
++function rpc(wsUrl) {
++  return new Promise((resolve, reject) => {
++    const ws = new WebSocket(wsUrl);
++    const st = { id: 0, pending: new Map(), ws };
++    OPEN.push(st);
++    ws.addEventListener("message", (ev) => {
++      const m = JSON.parse(ev.data);
++      if (m.id && st.pending.has(m.id)) { const d = st.pending.get(m.id); st.pending.delete(m.id); d(m); }
++    });
++    st.send = (method, params = {}) =>
++      new Promise((r) => { const id = ++st.id; st.pending.set(id, r); ws.send(JSON.stringify({ id, method, params })); });
++    ws.addEventListener("open", () => resolve(st));
++    ws.addEventListener("error", () => reject(new Error("ws failed: " + wsUrl)));
++  });
++}
++
++function finish(code) {
++  process.exitCode = code;
++  for (const st of OPEN) { try { st.ws.close(); } catch (e) { void e; } }
++  setTimeout(() => process.exit(code), 500).unref();
++}
++
++async function evalIn(st, expression) {
++  const m = await st.send("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true });
++  const o = m.result || {};
++  if (o.exceptionDetails) return { error: o.exceptionDetails.exception?.description || o.exceptionDetails.text };
++  return { value: o.result ? o.result.value : undefined };
++}
++const asJson = (e) => { try { return e.value === undefined || e.value === null ? null : JSON.parse(e.value); } catch { return null; } };
++
++const targets = () => fetch(CDP + "/json/list").then((r) => r.json());
++const version = await (await fetch(CDP + "/json/version")).json();
++const browser = await rpc(version.webSocketDebuggerUrl);
++
++// MV3 的 service worker 空闲三十秒就会被回收，所以每次用之前都要重新找；
++// 打开一个页面时内容脚本的 get-config 会把它唤醒。
++async function findSW(timeoutMs = 12000) {
++  const t0 = Date.now();
++  while (Date.now() - t0 < timeoutMs) {
++    const t = (await targets()).find((x) => x.type === "service_worker" && x.url.includes("background.js"));
++    if (t) return await rpc(t.webSocketDebuggerUrl);
++    await sleep(300);
++  }
++  return null;
++}
++// 如果 SW 正在休眠，用一个临时页面把它叫醒（内容脚本启动时的 get-config 就是唤醒信号）。
++async function wakeAndFindSW() {
++  let sw = await findSW(1500);
++  if (sw) return sw;
++  const warm = await browser.send("Target.createTarget", { url: BASE });
++  const warmId = warm.result?.targetId;
++  sw = await findSW(8000);
++  if (warmId) await browser.send("Target.closeTarget", { targetId: warmId });
++  return sw;
++}
++const swProbe = await wakeAndFindSW();
++if (!swProbe) { console.error("找不到扩展 service worker —— 扩展可能没加载成功"); finish(2); }
++
++const CHECK = `(() => {
++  const out = { host: false, connected: false, bubble: false, parent: "", display: "", visibility: "", opacity: "",
++                w: 0, h: 0, top: "", ontop: false, topLayer: false, inShadow: false };
++  const host = document.getElementById("aqh-root");
++  out.host = !!host;
++  out.connected = !!(host && host.isConnected);
++  if (!host) return JSON.stringify(out);
++  out.parent = host.parentElement ? host.parentElement.tagName : "";
++  const cs = getComputedStyle(host);
++  out.display = cs.display; out.visibility = cs.visibility; out.opacity = cs.opacity;
++  try { out.topLayer = host.matches(":popover-open"); } catch (e) {}
++  const sr = host.shadowRoot;
++  out.inShadow = !!sr;
++  const b = sr ? sr.getElementById("aqh-bubble") : document.getElementById("aqh-bubble");
++  out.bubble = !!b;
++  if (!b) return JSON.stringify(out);
++  const r = b.getBoundingClientRect();
++  out.w = Math.round(r.width); out.h = Math.round(r.height);
++  const cx = Math.round(r.left + r.width / 2), cy = Math.round(r.top + r.height / 2);
++  const el = document.elementFromPoint(cx, cy);
++  out.top = el ? (el.id || el.tagName) : "(null)";
++  out.ontop = !!(el && (el === host || host.contains(el)));
++  const btn = (sr || document).querySelector('[data-act="close"]');
++  if (btn) { const br = btn.getBoundingClientRect(); out.close = { x: Math.round(br.left + br.width / 2), y: Math.round(br.top + br.height / 2) }; }
++  return JSON.stringify(out);
++})()`;
++
++const results = [];
++
++for (const [name, label] of ATTACKS) {
++  const url = BASE + "?atk=" + name;
++  const created = await browser.send("Target.createTarget", { url });
++  const targetId = created.result?.targetId;
++  if (!targetId) { results.push({ name, label, fatal: "createTarget failed" }); continue; }
++
++  // 等页面目标出现并加载完成
++  let pageTarget = null;
++  for (let i = 0; i < 40 && !pageTarget; i++) {
++    await sleep(150);
++    pageTarget = (await targets()).find((t) => t.type === "page" && t.url.includes("atk=" + name));
++  }
++  if (!pageTarget) { results.push({ name, label, fatal: "no page target" }); continue; }
++
++  const page = await rpc(pageTarget.webSocketDebuggerUrl);
++  await browser.send("Target.activateTarget", { targetId });
++  await sleep(900);
++
++  const sw = await findSW();
++  if (!sw) { results.push({ name, label, fatal: "service worker 未就绪" }); continue; }
++
++  // 触发一次抓题（无选区 → 渲染提示气泡），只发给顶层框架
++  await evalIn(sw, `new Promise(async r => {
++    const q = ${JSON.stringify(BASE.replace(/attacks\.html.*$/, "") + "*")};
++    const tabs = await chrome.tabs.query({ url: q });
++    const tab = tabs[tabs.length - 1];
++    if (!tab) return r("no-tab");
++    try { await chrome.tabs.sendMessage(tab.id, { type: "aqh/capture", payload: { kind: "selection" } }, { frameId: 0 }); }
++    catch (e) { return r("send-failed:" + ((e && e.message) || e)); }
++    r("sent");
++  })`);
++  await sleep(1700);
++
++  const before = asJson(await evalIn(page, CHECK));
++
++  // 可点击性：先测——在 ✕ 按钮中心派发真实鼠标事件，气泡应当关闭
++  let clickable = null;
++  if (before?.close) {
++    await browser.send("Target.activateTarget", { targetId });
++    await page.send("Input.dispatchMouseEvent", { type: "mousePressed", x: before.close.x, y: before.close.y, button: "left", clickCount: 1 });
++    await page.send("Input.dispatchMouseEvent", { type: "mouseReleased", x: before.close.x, y: before.close.y, button: "left", clickCount: 1 });
++    await sleep(400);
++    const after = asJson(await evalIn(page, CHECK));
++    clickable = after ? !after.bubble : null;
++  }
++
++  // 自愈：重新画一个气泡，然后从页面侧把宿主删掉，等一个心跳周期后应当自动
++  // 回来，且气泡内容还在。
++  const trigger = `new Promise(async r => {
++    const tabs = await chrome.tabs.query({ url: ${JSON.stringify(BASE.replace(/attacks\.html.*$/, "") + "*")} });
++    const tab = tabs[tabs.length - 1];
++    try { await chrome.tabs.sendMessage(tab.id, { type: "aqh/capture", payload: { kind: "selection" } }, { frameId: 0 }); r("sent"); }
++    catch (e) { r("failed"); }
++  })`;
++  await evalIn(sw, trigger);
++  await sleep(700);
++  await evalIn(page, `(() => { const h = document.getElementById("aqh-root"); if (h) h.remove(); return 1; })()`);
++  let healed = false;
++  for (let i = 0; i < 15; i++) {
++    await sleep(110);
++    const s = asJson(await evalIn(page, CHECK));
++    if (s?.host && s?.connected && s?.bubble) { healed = true; break; }
++  }
++
++  const visible = !!before?.bubble && before.display !== "none" && before.visibility !== "hidden" &&
++    Number(before.opacity) > 0.05 && before.w > 100 && before.h > 40;
++  results.push({
++    name, label,
++    rendered: !!before?.bubble, visible, ontop: !!before?.ontop, topLayer: !!before?.topLayer,
++    healed, clickable, top: before?.top, parent: before?.parent,
++  });
++  await browser.send("Target.closeTarget", { targetId });
++}
++
++console.log("\n攻击模式逐个实测（新版：Shadow DOM + 顶层 + 自愈 + 捕获期事件）");
++console.log("模式".padEnd(14) + "渲染  可见  最上层  顶层  自愈  可点击  挂载点  对方盖在上面的是");
++for (const r of results) {
++  if (r.fatal) { console.log(r.name.padEnd(14) + " 执行失败: " + r.fatal); continue; }
++  const y = (v) => (v === true ? " ✓ " : v === false ? " ✗ " : " ? ");
++  console.log(r.name.padEnd(14) + y(r.rendered) + "  " + y(r.visible) + "  " + y(r.ontop) + "   " + y(r.topLayer) + "  " + y(r.healed) + "  " + y(r.clickable) + "   " + String(r.parent || "-").padEnd(6) + " " + (r.top || ""));
++}
++const broken = results.filter((r) => r.fatal || !r.visible || !r.ontop || r.clickable === false);
++console.log("\n" + (broken.length ? "仍会被弄坏的场景: " + broken.map((r) => r.name).join(", ") : "全部场景下 UI 都活着"));
++finish(broken.length ? 1 : 0);
+diff --git a/tools/verify-frame.mjs b/tools/verify-frame.mjs
+new file mode 100644
+index 0000000..21d1946
+--- /dev/null
++++ b/tools/verify-frame.mjs
+@@ -0,0 +1,81 @@
++// verify-frame.mjs — 验证「题目在 iframe 里」时划词通道是否还能用。
++// 用法: node tools/verify-frame.mjs [cdpBase] [framePageUrl]
++const CDP = process.argv[2] || "http://127.0.0.1:9338";
++const PAGE = process.argv[3] || "http://127.0.0.1:8123/frame.html";
++const NEEDLE = "IFRAME-QUESTION-42";
++const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
++const OPEN = [];
++
++function rpc(wsUrl) {
++  return new Promise((resolve, reject) => {
++    const ws = new WebSocket(wsUrl);
++    const st = { id: 0, pending: new Map(), ws };
++    OPEN.push(st);
++    ws.addEventListener("message", (ev) => {
++      const m = JSON.parse(ev.data);
++      if (m.id && st.pending.has(m.id)) { const d = st.pending.get(m.id); st.pending.delete(m.id); d(m); }
++    });
++    st.send = (method, params = {}) => new Promise((r) => { const id = ++st.id; st.pending.set(id, r); ws.send(JSON.stringify({ id, method, params })); });
++    ws.addEventListener("open", () => resolve(st));
++    ws.addEventListener("error", () => reject(new Error("ws failed " + wsUrl)));
++  });
++}
++
++// 干净的收尾：关掉所有调试连接，避免 Node 退出时和未关闭的句柄打架。
++function finish(code) {
++  process.exitCode = code;
++  for (const st of OPEN) { try { st.ws.close(); } catch (e) { void e; } }
++  setTimeout(() => process.exit(code), 500).unref();
++}
++async function ev(st, expr) {
++  const m = await st.send("Runtime.evaluate", { expression: expr, awaitPromise: true, returnByValue: true });
++  const o = m.result || {};
++  if (o.exceptionDetails) return { error: o.exceptionDetails.exception?.description || o.exceptionDetails.text };
++  return { value: o.result ? o.result.value : undefined };
++}
++const targets = () => fetch(CDP + "/json/list").then((r) => r.json());
++
++async function findSW() {
++  for (let i = 0; i < 30; i++) {
++    const t = (await targets()).find((x) => x.type === "service_worker" && x.url.includes("background.js"));
++    if (t) return rpc(t.webSocketDebuggerUrl);
++    await sleep(300);
++  }
++  return null;
++}
++
++const sw = await findSW();
++if (!sw) { console.error("扩展 service worker 不可用"); finish(2); }
++
++// 用 background 打开 iframe 场景页（也顺便验证 SW 能正常开标签页）
++const opened = await ev(sw, `new Promise(r => chrome.tabs.create({ url: ${JSON.stringify(PAGE)} }, t => r(t && t.id)))`);
++const tabId = opened.value;
++if (tabId === undefined || tabId === null) { console.error("打不开测试页"); finish(2); }
++await sleep(2200);
++
++const sent = await ev(sw, `new Promise(async r => {
++  try { await chrome.tabs.sendMessage(${tabId}, { type: "aqh/capture", payload: { kind: "selection" } }, { frameId: 0 }); r("sent"); }
++  catch (e) { r("failed:" + ((e && e.message) || e)); }
++})`);
++await sleep(1200);
++
++const pageTarget = (await targets()).find((t) => t.type === "page" && t.url.startsWith(PAGE));
++if (!pageTarget) { console.error("找不到页面目标"); finish(2); }
++const page = await rpc(pageTarget.webSocketDebuggerUrl);
++const bodyText = (await ev(page, `(() => {
++  const h = document.getElementById("aqh-root");
++  const sr = h && h.shadowRoot;
++  const body = sr && sr.getElementById("aqh-body");
++  return body ? body.innerText : "(no bubble body)";
++})()`)).value || "";
++// 气泡里的“已捕获”块会被答案覆盖，所以以历史记录里的 question 为准。
++const captured = (await ev(sw, `new Promise(r => chrome.storage.local.get({ history: [] }, x => r((x.history[0] && x.history[0].question) || "")))`)).value || "";
++
++const ok = String(sent.value) === "sent" && String(captured).includes(NEEDLE);
++console.log("SW 触发抓题:", sent.value);
++console.log("历史里记录的捕获原文:", JSON.stringify(String(captured).slice(0, 120)));
++console.log("气泡最终文本:", JSON.stringify(bodyText.slice(0, 80)));
++console.log(ok ? "PASS  iframe 内的选区被成功取到并送进气泡" : "FAIL  iframe 选区没传到顶层");
++
++await ev(sw, `new Promise(r => chrome.tabs.remove(${tabId}, r))`);
++finish(ok ? 0 : 1);
+diff --git a/tools/verify-incognito.mjs b/tools/verify-incognito.mjs
+new file mode 100644
+index 0000000..b1e42a1
+--- /dev/null
++++ b/tools/verify-incognito.mjs
+@@ -0,0 +1,181 @@
++// verify-incognito.mjs — QuizKing 无痕/受限环境改动的冒烟测试。
++// 用法: node verify-incognito.mjs [cdpBase] [pageUrl] [mockEndpointBase]
++// 校验：SW 起来了 / manifest 正确 / 内容脚本注入 / content→background 通道
++//      / 无痕分支（普通窗口开设置）/ 抓题全链路与历史写入。
++const CDP = process.argv[2] || "http://127.0.0.1:9334";
++const PAGE = process.argv[3] || "http://127.0.0.1:8123/";
++const MOCK = process.argv[4] || "http://127.0.0.1:8135/v1";
++
++const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
++const OPEN = [];
++
++function rpc(wsUrl) {
++  return new Promise((resolve, reject) => {
++    const ws = new WebSocket(wsUrl);
++    const st = { id: 0, pending: new Map(), events: [], ws };
++    OPEN.push(st);
++    ws.addEventListener("message", (ev) => {
++      const m = JSON.parse(ev.data);
++      if (m.id && st.pending.has(m.id)) {
++        const done = st.pending.get(m.id);
++        st.pending.delete(m.id);
++        done(m);
++      } else if (m.method) {
++        st.events.push(m);
++      }
++    });
++    st.send = (method, params = {}) =>
++      new Promise((r) => {
++        const id = ++st.id;
++        st.pending.set(id, r);
++        ws.send(JSON.stringify({ id, method, params }));
++      });
++    ws.addEventListener("open", () => resolve(st));
++    ws.addEventListener("error", () => reject(new Error("ws failed: " + wsUrl)));
++  });
++}
++
++function finish(code) {
++  process.exitCode = code;
++  for (const st of OPEN) { try { st.ws.close(); } catch (e) { void e; } }
++  setTimeout(() => process.exit(code), 500).unref();
++}
++
++async function evaluate(st, expression, contextId) {
++  const msg = await st.send("Runtime.evaluate", {
++    expression,
++    awaitPromise: true,
++    returnByValue: true,
++    contextId,
++  });
++  const out = msg.result || {};
++  if (out.exceptionDetails) {
++    return { error: out.exceptionDetails.exception?.description || out.exceptionDetails.text };
++  }
++  return { value: out.result ? out.result.value : undefined };
++}
++
++function json(e) {
++  if (!e || e.value === undefined || e.value === null) return null;
++  try { return JSON.parse(e.value); } catch { return null; }
++}
++
++const report = [];
++function say(ok, label, detail) {
++  report.push({ ok, label });
++  console.log((ok ? "PASS  " : "FAIL  ") + label + (detail === undefined ? "" : "  -> " + JSON.stringify(detail)));
++}
++
++const targets = await (await fetch(CDP + "/json/list")).json();
++const sw = targets.find((t) => t.type === "service_worker" && t.url.includes("background.js"));
++const page = targets.find((t) => t.type === "page" && t.url.startsWith(PAGE));
++say(!!sw, "扩展 service worker 已启动", sw ? sw.url : "未找到 background.js target");
++say(!!page, "测试页 target 存在", page ? page.url : "未找到 " + PAGE);
++
++let swSt = null;
++if (sw) {
++  swSt = await rpc(sw.webSocketDebuggerUrl);
++  const mf = json(await evaluate(swSt, "JSON.stringify(chrome.runtime.getManifest())"));
++  say(mf?.incognito === "spanning", "manifest.incognito = spanning", mf?.incognito);
++  say(mf?.version === "0.4.0", "manifest.version = 0.4.0", mf?.version);
++  const access = await evaluate(swSt, "new Promise(r=>chrome.extension.isAllowedIncognitoAccess(r))");
++  say(access.value !== undefined, "isAllowedIncognitoAccess() 可读", access.value ?? access.error);
++}
++
++let ctxId = null;
++if (page) {
++  const s = await rpc(page.webSocketDebuggerUrl);
++  await s.send("Runtime.enable");
++  await sleep(1500);
++  const contexts = s.events
++    .filter((e) => e.method === "Runtime.executionContextCreated")
++    .map((e) => e.params.context);
++  for (const ctx of contexts) {
++    const probe = await evaluate(s, "typeof chrome !== 'undefined' && !!chrome.runtime && !!chrome.runtime.id", ctx.id);
++    if (probe.value === true) { ctxId = ctx.id; break; }
++  }
++  say(ctxId !== null, "内容脚本已注入页面（隔离世界可访问 chrome.runtime）", contexts.length + " 个执行上下文");
++
++  if (ctxId !== null) {
++    const cfg = json(await evaluate(s,
++      "new Promise(r=>chrome.runtime.sendMessage({type:'aqh/get-config'},x=>r(JSON.stringify(x))))", ctxId));
++    say(!!cfg?.ok, "content→background aqh/get-config 通道可用", cfg && { ok: cfg.ok, incognito: cfg.incognito });
++    say(typeof cfg?.incognito === "boolean", "回执带 incognito 标记", cfg?.incognito);
++    say(!!cfg?.cfg && cfg.cfg.apiKey === undefined, "cfg 已剥离 apiKey（内容脚本拿不到 key）");
++
++    const tinfo = json(await evaluate(s,
++      "new Promise(r=>chrome.runtime.sendMessage({type:'aqh/test'},x=>r(JSON.stringify(x))))", ctxId));
++    say(!!tinfo?.ok, "aqh/test 路由可用（popup 探测用）", tinfo && { version: tinfo.version });
++    say(typeof tinfo?.incognitoAccess === "boolean", "aqh/test 回报无痕权限状态", tinfo?.incognitoAccess);
++
++    const normal = json(await evaluate(s,
++      "new Promise(r=>chrome.runtime.sendMessage({type:'aqh/open-options'},x=>r(JSON.stringify(x))))", ctxId));
++    say(normal?.ok === true && normal.where === "options-page", "普通窗口：设置页走常规路径", normal);
++
++    // 无痕窗口里走的就是这条分支：spanning 模式不能在无痕标签里加载扩展页面。
++    const incogBranch = json(await evaluate(s,
++      "new Promise(r=>chrome.runtime.sendMessage({type:'aqh/open-options',payload:{incognito:true}},x=>r(JSON.stringify(x))))", ctxId));
++    say(incogBranch?.ok === true && incogBranch.where === "normal-window",
++      "无痕分支：自动改用普通窗口打开设置页", incogBranch);
++
++    // 气泡渲染 + 普通窗口不应出现「无痕」角标。
++    // 注意：内容脚本收不到自己发的消息，所以必须由 background 用 tabs.sendMessage 转发
++    //（真实场景里快捷键/右键菜单/popup 也正是这条路径）。
++    const TARGET = PAGE.replace(/\/$/, "") + "/*";
++    await evaluate(swSt,
++      "new Promise(async r=>{const t=await chrome.tabs.query({url:" + JSON.stringify(TARGET) + "});" +
++      "await chrome.tabs.sendMessage(t[0].id,{type:'aqh/capture',payload:{kind:'selection'}});r(1)})");
++    await sleep(400);
++    const dom = json(await evaluate(s, `(() => {
++      const h = document.getElementById("aqh-root");
++      const sr = h && h.shadowRoot;
++      const g = (id) => (sr ? sr.getElementById(id) : document.getElementById(id));
++      const acts = sr ? sr.querySelectorAll("#aqh-actions button").length : document.querySelectorAll("#aqh-actions button").length;
++      let topLayer = false;
++      try { topLayer = !!(h && h.matches(":popover-open")); } catch (e) {}
++      return JSON.stringify({
++        host: !!h, shadow: !!sr, bubble: !!g("aqh-bubble"), badge: !!g("aqh-incog"), acts, topLayer,
++        dispPriority: h ? h.style.getPropertyPriority("display") : "",
++        disp: h ? h.style.getPropertyValue("display") : "",
++      });
++    })()`, ctxId));
++    say(dom?.bubble === true && dom.acts === 3, "气泡可渲染且头部按钮齐全", dom);
++    say(dom?.badge === false, "普通窗口不显示「无痕」角标", dom?.badge);
++    say(dom?.shadow === true, "UI 位于 Shadow DOM 内（页面 CSS 够不到）", dom?.shadow);
++    say(dom?.disp === "block" && dom?.dispPriority === "important",
++      "宿主带 inline !important（压过页面 !important）", { display: dom?.disp, priority: dom?.dispPriority });
++    say(dom?.topLayer === true, "宿主已进入顶层（无 z-index 能盖住）", dom?.topLayer);
++
++    // 全链路：本地 mock LLM → 抓题 → 增量推送 → 历史落盘。
++    if (swSt) {
++      const provider = {
++        providers: [{ id: "mock", label: "Mock", endpoint: MOCK.replace(/\/$/, ""), apiKey: "test-key", model: "mock-1", enabled: true }],
++        saveHistory: true,
++        saveHistoryIncognito: false,
++        promptMode: "reason",
++      };
++      await evaluate(swSt, "new Promise(r=>chrome.storage.sync.set(" + JSON.stringify(provider) + ",r))");
++      await evaluate(swSt, "new Promise(r=>chrome.storage.local.set({history:[]},r))");
++
++      await evaluate(s, "window.__aqhPushed=[];chrome.runtime.onMessage.addListener(m=>window.__aqhPushed.push(m.type));", ctxId);
++      const asked = json(await evaluate(s,
++        "new Promise(r=>chrome.runtime.sendMessage({type:'aqh/ask',payload:{mode:'text',text:'1+1=?'}},x=>r(JSON.stringify(x))))", ctxId));
++      say(!!asked?.result?.reqId, "aqh/ask 立即回执服务商名单", asked?.result && asked.result.pending);
++      say(asked?.result?.incognito === false, "回执带 incognito=false（普通窗口）", asked?.result?.incognito);
++
++      await sleep(2500);
++      const pushed = json(await evaluate(s, "JSON.stringify(window.__aqhPushed||[])", ctxId));
++      say(Array.isArray(pushed) && pushed.includes("aqh/ask-item") && pushed.includes("aqh/ask-finish"),
++        "结果按增量推送到页面", pushed);
++
++      const hist = json(await evaluate(swSt, "new Promise(r=>chrome.storage.local.get({history:[]},x=>r(JSON.stringify(x.history))))"));
++      const first = Array.isArray(hist) ? hist[0] : null;
++      say(!!first && first.answer === "42", "普通窗口抓题写入历史（answer=42）", first && { answer: first.answer, incognito: first.incognito });
++      say(first?.incognito === false, "历史条目标注 incognito=false", first?.incognito);
++    }
++  }
++}
++
++const failed = report.filter((r) => !r.ok);
++console.log("\n" + (failed.length ? "FAILED " + failed.length + " / " : "ALL PASS ") + report.length);
++finish(failed.length ? 1 : 0);

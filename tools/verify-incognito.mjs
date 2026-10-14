@@ -77,7 +77,7 @@ if (sw) {
   swSt = await rpc(sw.webSocketDebuggerUrl);
   const mf = json(await evaluate(swSt, "JSON.stringify(chrome.runtime.getManifest())"));
   say(mf?.incognito === "spanning", "manifest.incognito = spanning", mf?.incognito);
-  say(mf?.version === "0.4.0", "manifest.version = 0.4.0", mf?.version);
+  say(mf?.version === "0.4.1", "manifest.version = 0.4.1", mf?.version);
   const access = await evaluate(swSt, "new Promise(r=>chrome.extension.isAllowedIncognitoAccess(r))");
   say(access.value !== undefined, "isAllowedIncognitoAccess() 可读", access.value ?? access.error);
 }
@@ -135,15 +135,15 @@ if (page) {
       try { topLayer = !!(h && h.matches(":popover-open")); } catch (e) {}
       return JSON.stringify({
         host: !!h, shadow: !!sr, bubble: !!g("aqh-bubble"), badge: !!g("aqh-incog"), acts, topLayer,
-        dispPriority: h ? h.style.getPropertyPriority("display") : "",
-        disp: h ? h.style.getPropertyValue("display") : "",
+        styleAttr: !!(h && h.hasAttribute("style")),
+        hostDisplay: h ? getComputedStyle(h).display : "",
       });
     })()`, ctxId));
     say(dom?.bubble === true && dom.acts === 3, "气泡可渲染且头部按钮齐全", dom);
     say(dom?.badge === false, "普通窗口不显示「无痕」角标", dom?.badge);
     say(dom?.shadow === true, "UI 位于 Shadow DOM 内（页面 CSS 够不到）", dom?.shadow);
-    say(dom?.disp === "block" && dom?.dispPriority === "important",
-      "宿主带 inline !important（压过页面 !important）", { display: dom?.disp, priority: dom?.dispPriority });
+    say(dom?.hostDisplay === "block" && dom?.styleAttr === false,
+      "宿主样式来自 shadow :host!important，不带内联 style（痕迹更少）", { display: dom?.hostDisplay, styleAttr: dom?.styleAttr });
     say(dom?.topLayer === true, "宿主已进入顶层（无 z-index 能盖住）", dom?.topLayer);
 
     // 全链路：本地 mock LLM → 抓题 → 增量推送 → 历史落盘。

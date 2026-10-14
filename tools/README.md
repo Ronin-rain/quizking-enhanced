@@ -40,6 +40,9 @@ node tools\probe-attacks.mjs http://127.0.0.1:9334 http://127.0.0.1:8123/attacks
 
 # 题目在 iframe 里时，划词通道能否跨帧拿到选区
 node tools\verify-frame.mjs http://127.0.0.1:9334 http://127.0.0.1:8123/frame.html
+
+# 站在网站脚本的角度，量「能检测到扩展的什么」
+node tools\probe-detectability.mjs http://127.0.0.1:9334 http://127.0.0.1:8123/
 ```
 
 `probe-attacks.mjs` 会依次打开 `_testpage/attacks.html?atk=<每种手法>`，对每个页面检查四件事：
@@ -53,3 +56,6 @@ UI 是否渲染、是否可见、`elementFromPoint` 命中的是不是我们自�
 未开启时 `chrome.extension.isAllowedIncognitoAccess()` 返回 `false`，无痕窗口里不会注入内容脚本。
 
 `atk=sweepbody`（持续清空 `<body>` 新增节点）是刻意保留的**必败**用例，用来标记已知上限，别把它当 bug 修。
+
+`probe-detectability.mjs` 会**新开一个干净标签页**量三种状态（未使用 / 气泡中 / 关闭后），所以别在已用过的标签页上跑，
+否则量到的是残留痕迹。它顺便也是「零痕迹」这条承诺的回归测试。

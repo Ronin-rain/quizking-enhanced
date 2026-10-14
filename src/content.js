@@ -41,34 +41,33 @@
     try { return window.top === window; } catch (e) { return false; }
   })();
 
-  const HOST_STYLE = {
-    all: "initial",
-    position: "fixed",
-    inset: "0",
-    width: "100%",
-    height: "100%",
-    margin: "0",
-    padding: "0",
-    border: "0",
-    background: "transparent",
-    "z-index": "2147483647",
-    display: "block",
-    visibility: "visible",
-    opacity: "1",
-    overflow: "visible",
-    "max-width": "none",
-    "max-height": "none",
-    transform: "none",
-    filter: "none",
-    "clip-path": "none",
-    contain: "none",
-    "pointer-events": "none",
-    "mix-blend-mode": "normal",
-  };
-
   const BUBBLE_CSS = `
 :host {
-  all: initial;
+  /* Important declarations from the inner (shadow) tree outrank the document
+     tree's important declarations, so the page cannot hide the host — and the
+     host needs no style attribute at all, which keeps it a plain div. */
+  all: initial !important;
+  position: fixed !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  z-index: 2147483647 !important;
+  display: block !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  overflow: visible !important;
+  max-width: none !important;
+  max-height: none !important;
+  transform: none !important;
+  filter: none !important;
+  clip-path: none !important;
+  contain: none !important;
+  pointer-events: none !important;
+  mix-blend-mode: normal !important;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", Roboto, sans-serif;
   color: #1f2330;
 }
@@ -332,24 +331,6 @@
 }
 .aqh-fab-btn:hover { background: rgba(255,255,255,0.32); }
 
-.aqh-mask {
-  position: fixed;
-  inset: 0;
-  background: rgba(0,0,0,0.25);
-  cursor: crosshair;
-  pointer-events: auto;
-}
-.aqh-mask-hint {
-  position: fixed;
-  left: 50%;
-  top: 12px;
-  transform: translateX(-50%);
-  background: rgba(0,0,0,0.72);
-  color: #fff;
-  padding: 6px 12px;
-  border-radius: 999px;
-  font-size: 12px;
-}
 `;
 
   let hostEl = null;
@@ -369,13 +350,6 @@
         resolve({ ok: false, error: e?.message || String(e) });
       }
     });
-  }
-
-  function applyHostStyle(el) {
-    for (const prop of Object.keys(HOST_STYLE)) {
-      // Inline !important outranks any page stylesheet, including page !important.
-      el.style.setProperty(prop, HOST_STYLE[prop], prop === "all" ? "" : "important");
-    }
   }
 
   // A transformed/filtered ancestor turns position:fixed into "absolute to that
@@ -425,7 +399,6 @@
         hostEl = document.createElement("div");
         hostEl.id = ROOT_ID;
         hostEl.setAttribute("popover", "manual");
-        applyHostStyle(hostEl);
         shadowEl = hostEl.attachShadow({ mode: "open" });
         const style = document.createElement("style");
         style.textContent = BUBBLE_CSS;
@@ -456,7 +429,8 @@
   function startHealing() {
     if (!IS_TOP_FRAME || healTimer) return;
     healTimer = setInterval(() => {
-      if (!uiIsLive()) { stopHealing(); return; }
+      // Idle, hidden or UI-less tabs cost nothing.
+      if (!uiIsLive() || document.visibilityState === "hidden") { return; }
       ensureRoot(); // re-attach after a sweep, re-enter the top layer
     }, 1000);
   }
@@ -466,16 +440,30 @@
   }
 
   function stopHealingIfIdle() {
-    if (!uiIsLive()) stopHealing();
+    if (uiIsLive()) return;
+    stopHealing();
+    // Nothing on screen: take the host out of the page entirely. The node and
+    // its shadow content stay alive in memory, so re-opening is instant — but
+    // while unused the page sees zero extension nodes.
+    retireHost();
+  }
+
+  function retireHost() {
+    if (!hostEl || !hostEl.parentNode) return;
+    try {
+      if (typeof hostEl.hidePopover === "function" && hostEl.matches(":popover-open")) hostEl.hidePopover();
+    } catch (e) { void e; }
+    hostEl.remove();
   }
 
   // One capture-phase handler for every button in the UI, registered while the
   // document is still empty so a page listener on window/document cannot eat
   // the click before it reaches us.
   function onUiClick(e) {
-    if (!hostEl) return;
+    // Cheapest possible rejection: outside a shadow root an event retargets to
+    // the host itself, so one identity check covers every unrelated click.
+    if (!hostEl || e.target !== hostEl) return;
     const path = typeof e.composedPath === "function" ? e.composedPath() : [];
-    if (!path.includes(hostEl)) return;
     let actEl = null;
     for (const node of path) {
       if (node === hostEl) break;
@@ -508,8 +496,23 @@
   }
 
   // Capture phase on window, installed before page scripts (see manifest
-  // run_at: document_start).
-  window.addEventListener("click", onUiClick, true);
+  // run_at: document_start). Subframes never draw UI, so they skip it entirely.
+  if (IS_TOP_FRAME) window.addEventListener("click", onUiClick, true);
+
+  // Config is fetched on first use instead of on page load: an unopened page
+  // costs nothing and never wakes the service worker.
+  let cfgPromise = null;
+  function loadCfg() {
+    if (!cfgPromise) {
+      cfgPromise = callBg("aqh/get-config").then((res) => {
+        cfg = (res && res.cfg) || null;
+        incognito = !!(res && res.incognito);
+        if (cfg && cfg.promptMode) promptMode = cfg.promptMode;
+        return cfg;
+      });
+    }
+    return cfgPromise;
+  }
 
   function getCssOpacity() {
     const v = Number((cfg && cfg.bubbleOpacity) ?? 0.95);
@@ -1120,6 +1123,7 @@
     // Insurance: put the host back before drawing instead of waiting for the
     // next heal tick.
     ensureRoot();
+    await loadCfg();
     if (kind === "toggle") {
       // Toggle the 王字 FAB (default hidden, click to summon).
       toggleFab();
@@ -1224,24 +1228,19 @@
   });
 
   // Live-apply opacity changes (e.g. saved from the options page) to any open bubble.
-  chrome.storage.onChanged.addListener((changes, area) => {
-    if (area !== "sync" || !changes.bubbleOpacity) return;
-    const v = Number(changes.bubbleOpacity.newValue);
-    if (!Number.isFinite(v)) return;
-    if (!cfg) cfg = {};
-    cfg.bubbleOpacity = v;
-    const bubble = q("aqh-bubble");
-    if (bubble) bubble.style.setProperty("--aqh-o", String(getCssOpacity()));
-  });
+  if (IS_TOP_FRAME) {
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (area !== "sync" || !changes.bubbleOpacity) return;
+      const v = Number(changes.bubbleOpacity.newValue);
+      if (!Number.isFinite(v)) return;
+      if (!cfg) cfg = {};
+      cfg.bubbleOpacity = v;
+      const bubble = q("aqh-bubble");
+      if (bubble) bubble.style.setProperty("--aqh-o", String(getCssOpacity()));
+    });
+  }
 
-  (async () => {
-    // Subframes carry no UI and no config worth fetching.
-    if (!IS_TOP_FRAME) return;
-    const res = (await callBg("aqh/get-config")) || {};
-    cfg = res.cfg || null;
-    incognito = !!res.incognito;
-    if (cfg && cfg.promptMode) promptMode = cfg.promptMode;
-    log("boot promptMode=", promptMode, "incognito=", incognito);
-    // FAB is hidden by default; user summons it via popup / shortcut / right-click.
-  })();
+  // No page-load work at all: no DOM, no timer, no message. The FAB stays hidden
+  // until the user summons it via popup / shortcut / right-click, and the config
+  // is only fetched on that first use.
 })();

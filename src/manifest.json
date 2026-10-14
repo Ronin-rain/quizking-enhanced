@@ -3,7 +3,7 @@
   "name": "__MSG_extName__",
   "default_locale": "zh_CN",
   "description": "__MSG_extDescription__",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "minimum_chrome_version": "114",
   "incognito": "spanning",
   "action": {
@@ -17,9 +17,7 @@
   "permissions": [
     "storage",
     "activeTab",
-    "contextMenus",
-    "scripting",
-    "notifications"
+    "contextMenus"
   ],
   "host_permissions": [
     "<all_urls>"

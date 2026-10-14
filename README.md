@@ -195,10 +195,31 @@ Chrome 出于安全考虑**默认不允许任何扩展在无痕窗口里运行**
 
 如果页面**持续地**把 `<body>` 里新增的节点全部删掉（`MutationObserver` + 定时器，见 `_testpage/attacks.html?atk=sweepbody`），UI 会在「挂上 → 被删」之间反复循环，你基本看不到气泡。这种页面同时也会删掉它自己的弹窗、下拉、浮层，现实里很少见；真遇到时扩展这边无解。
 
+### 网站能检测到什么（实测）
+
+`tools/probe-detectability.mjs` 站在网站脚本的视角量过，结论是三点：
+
+| 状态 | 页面能观测到的扩展痕迹 |
+| --- | --- |
+| 页面刚加载完，你没用扩展 | **没有**。没有额外节点、`document.styleSheets` 里没有 `chrome-extension://`、页面世界里没有 `chrome.runtime`、也没有任何全局变量 |
+| 气泡显示中 | **1 个节点**：`<div id="aqh-root" popover="manual">`。没有 `style` 属性（样式全在 shadow root 里），`position:fixed`、`z-index:2147483647`、处于顶层 |
+| 点 ✕ 关掉气泡 | **回到零**。宿主节点会被整体从页面摘除（对象留在内存里，下次秒开） |
+
+也就是说：**不使用时等于不存在；使用时必然存在一个节点，这一点无法消除**——任何脚本走一遍 DOM 就能看到它，而 Chrome 也没有给扩展提供「在页面里画东西但不留节点」的能力。想彻底不在页面里出现，只有把界面搬到浏览器自己的表面（侧边栏 / popup），那会改变交互方式，属于另一个方向。
+
 ### 不做「隐身」的原因
 
-有两件事不做：一是让扩展对页面**隐身**，二是绕开考试 / 受管环境的监考与管控。
-前者技术上也不成立——任何脚本走一遍 DOM 就能看到宿主节点，所谓隐身只是把检测门槛抬高一点点，挡不住有心人，却会让代码变得脆弱难维护；后者不是技术问题，是诚信问题，这条线不碰。练题、作业、自测这些场景里，这插件才是它该待的地方。
+让扩展对页面**隐身**（伪造环境、藏掉节点、绕过观察者、把页面完整性检查糊过去）这件事不做。两个理由：技术上是场必输的军备竞赛，伪装只是把检测门槛抬高一点，却让代码又脆又难维护；方向上，它正是「绕过站点完整性检查」所需要的技术，而绕开考试 / 受管环境的监考管控不在本项目范围内。练题、作业、自测这些场景里，这插件才是它该待的地方。
+
+### 轻量化
+
+- **页面加载期零动作**：不建节点、不起定时器、不发消息（配置改成第一次抓题时才拉取）
+- **闲置零节点**：气泡关闭 / FAB 收起后宿主节点整体摘除
+- **隐藏标签不干活**：自愈心跳在 `document.hidden` 时直接跳过
+- **子框架只留最小逻辑**：点击委托、自愈、配置监听都只在顶层框架注册
+- **少了两个没用的权限**：`scripting`、`notifications` 已从 manifest 移除（代码从未使用）
+- **没有 `web_accessible_resources`**：网站无法通过 `chrome-extension://` 探测本扩展的资源文件
+- **没有远程代码**：无 `eval` / `new Function` / 动态 import，纯 MV3 本地脚本
 
 ## 架构
 
@@ -352,11 +373,10 @@ const svg = fs.readFileSync('src/icons/icon.svg');
 | `storage` | 读 / 写 `chrome.storage.sync` & `.local` |
 | `activeTab` | popup 获取当前 tab id |
 | `contextMenus` | 注册右键菜单 |
-| `scripting` | 截图 / 注入 |
-| `notifications` | （预留）错误提示 |
-| `host_permissions: <all_urls>` | content 脚本可注入任意页以捕获内容 |
+| `host_permissions: <all_urls>` | content 脚本注入任意页以捕获内容；`tabs.captureVisibleTab` 截图也依赖它 |
 
-> `host_permissions` 仅用于 content 注入；不出站。
+> `host_permissions` 仅用于 content 注入与截图；不出站。
+> 早期版本声明过 `scripting` / `notifications`，但代码从未使用，已移除。
 
 ## 路线图
 
