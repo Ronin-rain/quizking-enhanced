@@ -44,3 +44,6 @@ STATUS.md
 
 # Backups
 .backup/
+
+# Generated diffs
+*.patch
