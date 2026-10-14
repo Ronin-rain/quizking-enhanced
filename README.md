@@ -3,8 +3,10 @@
 # QuizKing · 答题王
 
 > 把网页上看到的题目（截图 / 划词 / DOM）丢给 OpenAI 兼容 LLM，把答案 / 解析吐回悬浮气泡。
+>
+> **本仓库是 [ops120/quizking](https://github.com/ops120/quizking) 的增强版**，基线为其 `main` 分支（v0.3.0，commit `05b6e47`）。原项目的设计、功能、文档与图标全部来自上游，版权归上游作者；本仓库沿用同一个 MIT 许可，只在其之上做了[下面这些改动](#相对上游改了什么)。
 
-[![Release](https://img.shields.io/badge/release-v0.3.0-3563ff)](../../releases)
+[![Release](https://img.shields.io/badge/release-v0.4.1-3563ff)](../../releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![Manifest V3](https://img.shields.io/badge/manifest-V3-3563ff)](#技术栈)
 [![Chrome 114+](https://img.shields.io/badge/chrome-114%2B-4285f4)](#安装)
@@ -16,6 +18,7 @@
 
 ## 目录
 
+- [相对上游改了什么](#相对上游改了什么)
 - [特性](#特性)
 - [30 秒试用](#30-秒试用)
 - [安装](#安装)
@@ -30,6 +33,28 @@
 - [贡献](#贡献)
 - [作者](#作者)
 - [许可](#许可)
+
+## 相对上游改了什么
+
+基线：上游 [`ops120/quizking`](https://github.com/ops120/quizking) 的 `main`（v0.3.0，`05b6e47`）。本仓库在其之上做了四块改动，每一块都能复现：
+
+| 方向 | 改了什么 | 细节位置 |
+| --- | --- | --- |
+| **无痕模式可用**<br>（上游完全没有） | 显式 `"incognito": "spanning"`，让普通窗口与无痕窗口共用同一个 service worker 和同一份配置；气泡在无痕窗口显示「无痕」角标；无痕窗口里点 ⚙ 会自动改在**普通窗口**打开设置页；无痕会话**默认不写入**共享历史（可开）；popup / 选项页显示无痕权限状态并一键跳到扩展详情页开启 | 见下方「无痕模式与受限环境」 |
+| **抗页面屏蔽加固** | UI 整体搬进 Shadow DOM（页面 CSS 够不到）+ popover 顶层渲染（任何 z-index 盖不住）；宿主被页面删除后 1 秒内自动挂回且已显示内容不丢；点击统一走 `document_start` 注册的捕获期委托；跨 iframe 收集选区；页面 CSS 强杀、全屏遮罩、事件吞并、猴子补丁四类手法都有实测用例 | 见下方「网页能怎么弄坏插件，以及现在的对策」 |
+| **轻量化 / 痕迹收敛** | 页面加载期零动作（配置改为首次抓题才拉取，不再为每个页面唤醒 service worker）；闲置时把宿主节点整体摘除，回到零注入；隐藏标签页不干活；子框架只保留最小监听；移除从未使用的 `scripting` / `notifications` 权限；宿主不再带内联 `style` 属性 | 见下方「轻量化」 |
+| **可复现的验证工具** | `tools/` 四个真机脚本 + `_testpage/` 攻击模拟页：主流程 23 项断言、iframe 选区、8 种屏蔽手法矩阵、可检测面三态 | [tools/README.md](./tools/README.md) |
+
+版本沿革：`0.3.0` → `0.3.1`（无痕模式）→ `0.4.0`（抗页面屏蔽）→ `0.4.1`（轻量化与痕迹收敛），逐条见 [CHANGELOG.md](./CHANGELOG.md)。
+
+**已知上限（没有解决的）**：
+
+- 页面**持续**清空 `<body>` 新增节点的写法会让 UI 无法常驻（`_testpage/attacks.html?atk=sweepbody` 可复现；这类页面同时也会删掉它自己的弹层）
+- 站点用 `user-select: none` 禁掉选择时，划词通道失效，只能用「抓取截图」
+- `chrome://`、扩展商店、PDF 阅读器、其他扩展的页面，浏览器本身禁止注入
+- 使用时页面必然能看到 1 个宿主节点——Chrome 没有「显示界面但不产生 DOM 节点」的能力
+
+**明确不做**：把 UI 伪装成页面自带元素、绕过站点的完整性检查或监考管控。理由写在下方「不做『隐身』的原因」。
 
 ## 特性
 
@@ -397,20 +422,22 @@ const svg = fs.readFileSync('src/icons/icon.svg');
 4. 提 PR，附带：改了什么 / 为什么 / 怎么验证 / 风险点
 5. 维护者审 → 合入
 
-## 作者
+## 作者与上游
 
-[![Bilibili](https://img.shields.io/badge/Bilibili-97727630-00aeec?logo=bilibili&logoColor=white)](https://space.bilibili.com/97727630)
-
-问题反馈 / 合作 / 想看教程 → B 站私信。
+- **上游项目 / 原作者**：[ops120/quizking](https://github.com/ops120/quizking)，B 站 [97727630](https://space.bilibili.com/97727630)。本仓库的原始设计、核心功能、文档与图标全部来自这里。
+- **本仓库**：上游的增强分支。上游的问题反馈 / 合作 / 教程请求请找上游作者；本仓库改动相关的问题请在本仓库开 Issue。
 
 
 ## 致谢
 
+- [ops120/quizking](https://github.com/ops120/quizking) — 本仓库的上游项目
 - [linux.do](https://linux.do/) — 中文独立技术社区，给了工具 / 思路上的大量启发与反馈
 
 ## 许可
 
 [MIT](./LICENSE) — 自由使用、修改、分发。
+
+上游版权归上游仓库的 `AI Quiz Helper Contributors` 所有；本仓库与上游使用同一个 MIT 许可，[LICENSE](./LICENSE) 中同时保留上游版权声明与本仓库改动部分的版权声明。
 
 ---
 
