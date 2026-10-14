@@ -15,6 +15,8 @@
 
   const ROOT_ID = "aqh-root";
   let cfg = null;
+  // True when this tab lives in an incognito window (reported by background).
+  let incognito = false;
   // Per-call: result.promptMode is read inside showAnswer.
   let promptMode = "answer";
   // In-flight multi-provider request: { reqId, roster, items, promptMode, label }.
@@ -65,7 +67,9 @@
     if (opts.hidden) wrap.classList.add("aqh-hide");
     wrap.innerHTML =
       '<div id="aqh-header">' +
-        '<div id="aqh-title"><span id="aqh-title-glyph">王</span><span id="aqh-title-text">QuizKing · 答题王</span></div>' +
+        '<div id="aqh-title"><span id="aqh-title-glyph">王</span><span id="aqh-title-text">QuizKing · 答题王</span>' +
+          (incognito ? '<span id="aqh-incog" title="当前标签页处于无痕窗口">无痕</span>' : "") +
+        '</div>' +
         '<div id="aqh-actions">' +
           '<button data-act="settings" title="设置">⚙</button>' +
           '<button data-act="min" title="隐藏">—</button>' +
@@ -79,10 +83,21 @@
     wrap.querySelector('[data-act="close"]').addEventListener("click", closeBubble);
     wrap.querySelector('[data-act="min"]').addEventListener("click", () => wrap.classList.toggle("aqh-hide"));
     wrap.querySelector('[data-act="settings"]').addEventListener("click", () => {
-      try { chrome.runtime.openOptionsPage(); } catch (e) { void e; }
+      openSettings();
     });
 
     enableDrag(wrap, wrap.querySelector("#aqh-header"));
+  }
+
+  // Ask background to open the options page: from an incognito window Chrome
+  // cannot show the extension's own page in a tab, so background opens it in a
+  // regular window instead of silently doing nothing.
+  function openSettings() {
+    callBg("aqh/open-options").then((res) => {
+      if (res && res.ok === false) {
+        log("openOptions failed", res.error);
+      }
+    });
   }
 
   function setStatus(text, loading) {
@@ -289,9 +304,7 @@
         { status: "需要先在选项页填写 API Key" }
       );
       const b = document.getElementById("aqh-openopts");
-      if (b) b.addEventListener("click", () => {
-        try { chrome.runtime.openOptionsPage(); } catch (e) { void e; }
-      });
+      if (b) b.addEventListener("click", openSettings);
       return;
     }
     const n = ((cfg && cfg.providers) || []).filter((p) => p.enabled && p.hasKey).length;
@@ -733,9 +746,11 @@
   });
 
   (async () => {
-    cfg = ((await callBg("aqh/get-config")) || {}).cfg || null;
+    const res = (await callBg("aqh/get-config")) || {};
+    cfg = res.cfg || null;
+    incognito = !!res.incognito;
     if (cfg && cfg.promptMode) promptMode = cfg.promptMode;
-    log("boot promptMode=", promptMode);
+    log("boot promptMode=", promptMode, "incognito=", incognito);
     // FAB is hidden by default; user summons it via popup / shortcut / right-click.
   })();
 })();

@@ -3,8 +3,9 @@
   "name": "__MSG_extName__",
   "default_locale": "zh_CN",
   "description": "__MSG_extDescription__",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "minimum_chrome_version": "114",
+  "incognito": "spanning",
   "action": {
     "default_title": "QuizKing · 答题王",
     "default_popup": "popup.html"

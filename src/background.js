@@ -24,6 +24,15 @@ const PROVIDER_DEFAULTS = {
 // Legacy keys (endpoint / apiKey / model) are read once for migration only.
 const LEGACY_KEYS = ["endpoint", "apiKey", "model"];
 
+// Incognito / locked-down browser notes (paired with "incognito": "spanning"):
+//   * Chrome only lets the *user* grant incognito access (chrome://extensions →
+//     详情 → 允许在无痕模式下使用). No manifest key can force it, so we detect
+//     the state and guide instead of failing silently.
+//   * "spanning" keeps ONE service worker behind regular and incognito tabs,
+//     which is what lets an incognito tab reuse the configured providers.
+//   * A spanning extension cannot load its own pages into an incognito tab, so
+//     the options page has to be opened in a regular window from incognito.
+
 const DEFAULTS = {
   temperature: 0.2,
   bubbleOpacity: 0.95,
@@ -33,6 +42,8 @@ const DEFAULTS = {
   reasoningPrompt:
     "你是一位严谨的解题助手。用户会给你网页上截取的一道题目（可能附文本和图片）。请仔细阅读，输出严格的 JSON：{\"answer\":\"...\", \"reasoning\":\"...\"}，不要任何额外文字、不要 markdown 代码块。answer 用最简洁的方式给出最终答案；reasoning 解释关键步骤（中文）。",
   saveHistory: true,
+  // Incognito questions are not written to the shared history unless asked.
+  saveHistoryIncognito: false,
 };
 
 function normalizeProvider(p, i) {
@@ -99,6 +110,47 @@ function getActiveTab() {
       resolve(tabs && tabs[0]);
     });
   });
+}
+
+function inIncognitoTab(sender) {
+  return !!(sender && sender.tab && sender.tab.incognito);
+}
+
+function isAllowedIncognitoAccess() {
+  return new Promise((resolve) => {
+    try {
+      chrome.extension.isAllowedIncognitoAccess((allowed) => {
+        void chrome.runtime.lastError;
+        resolve(!!allowed);
+      });
+    } catch (e) {
+      void e;
+      resolve(false);
+    }
+  });
+}
+
+// From an incognito window a spanning extension cannot show its own page in a
+// tab, so ⚙ opens the options page in a regular window instead.
+async function openOptions(incognito) {
+  if (incognito) {
+    try {
+      await chrome.windows.create({
+        url: chrome.runtime.getURL("options.html"),
+        focused: true,
+      });
+      return { ok: true, where: "normal-window" };
+    } catch (e) {
+      // fall through to the ordinary path
+      console.warn("openOptions in normal window failed", e && e.message);
+    }
+  }
+  try {
+    await chrome.runtime.openOptionsPage();
+    return { ok: true, where: "options-page" };
+  } catch (e) {
+    return { ok: false, error: (e && e.message) || String(e) };
+  }
 }
 
 async function sendToContent(tab, type, payload) {
@@ -280,7 +332,7 @@ function pushToTab(tabId, type, payload) {
   } catch (e) { void e; }
 }
 
-async function runAsk({ reqId, tabId, payload, cfg, active, promptMode }) {
+async function runAsk({ reqId, tabId, payload, cfg, active, promptMode, incognito }) {
   let items;
   try {
     const settled = await askAll(payload, (item) => {
@@ -301,6 +353,7 @@ async function runAsk({ reqId, tabId, payload, cfg, active, promptMode }) {
       answer: it.answer,
       reasoning: it.reasoning,
       model: it.model,
+      incognito: !!incognito,
     }))
   );
 }
@@ -310,9 +363,13 @@ async function saveHistoryMany(entries) {
   if (!entries.length) return;
   const cfg = await ensureDefaults();
   if (!cfg.saveHistory) return;
+  // Incognito questions stay out of the shared history unless the user opts in,
+  // otherwise a private session would leave traces in a shared storage area.
+  const keep = entries.filter((e) => !e.incognito || cfg.saveHistoryIncognito === true);
+  if (!keep.length) return;
   return new Promise((resolve) => {
     chrome.storage.local.get({ history: [] }, (cur) => {
-      const list = [...entries, ...(cur.history || [])].slice(0, 200);
+      const list = [...keep, ...(cur.history || [])].slice(0, 200);
       chrome.storage.local.set({ history: list }, () => resolve());
     });
   });
@@ -369,7 +426,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       if (!msg || !msg.type) return sendResponse({ ok: false, error: "empty" });
       if (msg.type === "aqh/get-config") {
         const cfg = await ensureDefaults();
-        return sendResponse({ ok: true, cfg: sanitizeCfg(cfg) });
+        // sender.tab is the tab the content script lives in, so the bubble can
+        // tell an incognito window apart from a regular one.
+        return sendResponse({ ok: true, cfg: sanitizeCfg(cfg), incognito: inIncognitoTab(sender) });
+      }
+      if (msg.type === "aqh/open-options") {
+        // Popups answer without sender.tab, so they pass their tab's flag along.
+        const incognito = inIncognitoTab(sender) || !!(msg.payload && msg.payload.incognito);
+        return sendResponse(await openOptions(incognito));
       }
       if (msg.type === "aqh/capture-visible-tab") {
         const tab = sender.tab || (await getActiveTab());
@@ -391,13 +455,19 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         }
         const reqId = newReqId();
         const promptMode = cfg.promptMode || "reason";
+        const incognito = inIncognitoTab(sender);
         // Reply right away with the roster so the bubble can draw one pending
         // card per provider, then stream each answer in as it arrives.
         sendResponse({
           ok: true,
-          result: { reqId, pending: active.map((p) => ({ id: p.id, label: p.label, model: p.model })), promptMode },
+          result: {
+            reqId,
+            pending: active.map((p) => ({ id: p.id, label: p.label, model: p.model })),
+            promptMode,
+            incognito,
+          },
         });
-        runAsk({ reqId, tabId, payload, cfg, active, promptMode });
+        runAsk({ reqId, tabId, payload, cfg, active, promptMode, incognito });
         return true;
       }
       if (msg.type === "aqh/selftest" && self.__AQH_SELFTEST__) {
@@ -405,8 +475,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         return sendResponse({
           ok: true,
           cfg: sanitizeCfg(cfg),
-          routes: ["aqh/get-config", "aqh/capture-visible-tab", "aqh/ask", "aqh/test", "aqh/selftest"],
-          flags: { selftest: !!self.__AQH_SELFTEST__ },
+          routes: ["aqh/get-config", "aqh/open-options", "aqh/capture-visible-tab", "aqh/ask", "aqh/test", "aqh/selftest"],
+          flags: {
+            selftest: !!self.__AQH_SELFTEST__,
+            incognitoContext: !!chrome.extension.inIncognitoContext,
+            incognitoAccess: await isAllowedIncognitoAccess(),
+          },
         });
       }
       if (msg.type === "aqh/test") {
@@ -417,6 +491,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           cfg: safe,
           hasKey: safe.hasKey,
           providerCount: safe.providers.filter((p) => p.enabled).length,
+          version: chrome.runtime.getManifest().version,
+          incognitoAccess: await isAllowedIncognitoAccess(),
+          incognitoContext: !!chrome.extension.inIncognitoContext,
         });
       }
       return sendResponse({ ok: false, error: "unknown" });

@@ -7,6 +7,7 @@ const FIELDS = [
   "reasoningPrompt",
   "bubbleOpacity",
   "saveHistory",
+  "saveHistoryIncognito",
 ];
 
 // Legacy single-endpoint keys, read once to seed the provider list.
@@ -148,6 +149,8 @@ function load() {
     $("bubbleOpacity").value = (cfg.bubbleOpacity === undefined ? 0.95 : cfg.bubbleOpacity);
     $("opaV").textContent = Number($("bubbleOpacity").value).toFixed(2);
     $("saveHistory").checked = (cfg.saveHistory === undefined ? true : !!cfg.saveHistory);
+    $("saveHistoryIncognito").checked = (cfg.saveHistoryIncognito === true);
+    refreshIncognitoState();
     // Migrate any pre-existing 'answer' mode users to 'reason' so the answer-only path is gone.
     const mode = (cfg.promptMode === "answer" || !cfg.promptMode) ? "reason" : cfg.promptMode;
     const radio = document.querySelector('input[name="promptMode"][value="' + mode + '"]');
@@ -186,6 +189,7 @@ function save() {
     reasoningPrompt: $("reasoningPrompt").value,
     bubbleOpacity: Number($("bubbleOpacity").value),
     saveHistory: $("saveHistory").checked,
+    saveHistoryIncognito: $("saveHistoryIncognito").checked,
   };
   chrome.storage.sync.set(next, () => {
     const err = chrome.runtime && chrome.runtime.lastError;
@@ -202,6 +206,36 @@ function save() {
     setTimeout(() => {
       if (!dirty) $("saveRes").textContent = "";
     }, 3000);
+  });
+}
+
+// --- Incognito access -----------------------------------------------------
+
+// Only the user can flip this switch; Chrome exposes the state so we can point
+// at the exact page instead of pretending it is a bug.
+function refreshIncognitoState() {
+  const el = $("incogState");
+  if (!el) return;
+  try {
+    chrome.extension.isAllowedIncognitoAccess((allowed) => {
+      void chrome.runtime.lastError;
+      el.textContent = allowed
+        ? "✓ 已允许在无痕模式下使用"
+        : "✗ 尚未允许在无痕模式下使用";
+      el.classList.toggle("incog-ok", !!allowed);
+      el.classList.toggle("incog-bad", !allowed);
+    });
+  } catch (e) {
+    el.textContent = "无法检测无痕权限：" + ((e && e.message) || String(e));
+  }
+}
+
+function openExtensionsPage() {
+  const url = "chrome://extensions/?id=" + chrome.runtime.id;
+  chrome.tabs.create({ url }, () => {
+    if (chrome.runtime.lastError) {
+      $("incogState").textContent = "请手动打开 chrome://extensions 找到 QuizKing";
+    }
   });
 }
 
@@ -261,6 +295,7 @@ function loadHistory() {
       div.innerHTML =
         '<div><b>' + new Date(h.ts).toLocaleString() + '</b> · <span class="muted">' +
         escapeHtml(h.provider || "") + " " + escapeHtml(h.model || "") + " " + escapeHtml(h.mode || "") +
+        (h.incognito ? " 无痕" : "") +
         '</span></div>' +
         '<div class="muted">问题：' + escapeHtml(h.question || "").slice(0, 200) + '</div>' +
         '<div><b>答案：</b>' + escapeHtml(h.answer || "") + '</div>' +
@@ -285,6 +320,7 @@ document.addEventListener("DOMContentLoaded", () => {
   $("saveBtn").addEventListener("click", save);
   $("addProvider").addEventListener("click", addProvider);
   $("testBtn").addEventListener("click", testAll);
+  $("incogOpen").addEventListener("click", openExtensionsPage);
   $("clearHistory").addEventListener("click", clearHistory);
   $("viewHistory").addEventListener("click", loadHistory);
   // Mark the form dirty on any change. The user must still click 保存 to persist.
@@ -292,7 +328,7 @@ document.addEventListener("DOMContentLoaded", () => {
     r.addEventListener("change", () => { refreshPromptBoxes(); markDirty(); });
   });
   const trackedIds = [
-    "systemPrompt", "reasoningPrompt", "saveHistory",
+    "systemPrompt", "reasoningPrompt", "saveHistory", "saveHistoryIncognito",
   ];
   trackedIds.forEach((id) => {
     const el = $(id);

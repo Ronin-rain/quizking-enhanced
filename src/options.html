@@ -77,6 +77,29 @@
   </section>
 
   <section>
+    <h2>无痕模式 / 受限环境</h2>
+    <p class="muted">
+      Chrome 默认不允许扩展在无痕窗口里运行，必须手动开启一次（浏览器安全设计，任何插件都无法用代码绕过）。
+      开启后：抓题、快捷键、右键菜单、气泡在无痕窗口都能正常工作，配置在普通窗口与无痕窗口之间共享。
+    </p>
+    <div class="row">
+      <button id="incogOpen" type="button">打开扩展详情页</button>
+      <span id="incogState" class="muted">检测中…</span>
+    </div>
+    <p class="muted">
+      开启路径：<code>chrome://extensions</code> → QuizKing 「详情」 → 打开「允许在无痕模式下使用」。
+    </p>
+    <label class="chk">
+      <input id="saveHistoryIncognito" type="checkbox" />
+      无痕会话也保存历史记录（默认关闭）
+    </label>
+    <p class="muted">
+      在无痕窗口点气泡的 ⚙ 或 popup 的「设置」时，Chrome 不允许把扩展页面加载进无痕标签，
+      插件会自动改在普通窗口打开设置页。
+    </p>
+  </section>
+
+  <section>
     <h2>快捷键</h2>
     <p class="muted">在 <code>chrome://extensions/shortcuts</code> 中可重新绑定这 4 个命令。Windows / Linux 用 <kbd>Ctrl</kbd>，macOS 用 <kbd>⌘ Command</kbd>。</p>
     <table class="kbd-table">

@@ -52,6 +52,8 @@ button.primary { background: #3563ff; color: #fff; border-color: #3563ff; }
 button.primary:hover { background: #2a4edb; color: #fff; }
 .row { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
 .muted { color: #6b7080; font-size: 12px; }
+.incog-ok { color: #1a7f42; }
+.incog-bad { color: #b3261e; }
 
 /* Provider cards (multi-API) */
 .providers { display: flex; flex-direction: column; gap: 12px; margin: 10px 0 4px; }
