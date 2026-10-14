@@ -9,8 +9,17 @@ document.addEventListener("DOMContentLoaded", async () => {
       const msg = (k === "show-fab")
         ? { type: "aqh/show-fab" }
         : { type: "aqh/capture", payload: { kind: k } };
-      chrome.tabs.sendMessage(tab.id, msg, (res) => {
-        if (chrome.runtime.lastError) { $("status").textContent = "当前页面不可用"; return; }
+      // frameId 0: with all_frames enabled every frame has content.js, but only
+      // the top frame owns the bubble.
+      chrome.tabs.sendMessage(tab.id, msg, { frameId: 0 }, (res) => {
+        if (chrome.runtime.lastError) {
+          $("status").textContent = explainUnavailable(tab);
+          return;
+        }
+        if (res && res.ok === false) {
+          $("status").textContent = explainUnavailable(tab);
+          return;
+        }
         if (k === "show-fab" && res && typeof res.shown === "boolean") {
           $("status").textContent = res.shown ? "已召唤 王字气泡" : "已收起 王字气泡";
         }
@@ -61,6 +70,20 @@ function renderIncognitoHint(allowed, inIncognito) {
     $("incogEnable").style.display = "none";
     box.style.display = "";
   }
+}
+
+// Chrome itself forbids content scripts on a handful of page types — no amount
+// of extension code can run there, so say which one instead of "不可用".
+function explainUnavailable(tab) {
+  const url = (tab && tab.url) || "";
+  if (/^chrome:\/\//.test(url)) return "chrome:// 页面不允许扩展注入（浏览器限制）";
+  if (/^edge:\/\//.test(url)) return "edge:// 页面不允许扩展注入（浏览器限制）";
+  if (/^devtools:\/\//.test(url)) return "DevTools 页面不支持扩展注入";
+  if (/^https:\/\/chromewebstore\.google\.com\//.test(url)) return "扩展商店页面禁止注入（浏览器限制）";
+  if (/^file:\/\//.test(url)) return "本地文件需在扩展详情页开启「允许访问文件网址」";
+  if (/\.pdf($|[?#])/i.test(url)) return "PDF 阅读器内不跑内容脚本，请改用「抓取截图」";
+  if (/^chrome-extension:\/\//.test(url)) return "其他扩展的页面不允许注入（浏览器限制）";
+  return "当前页面未响应：可能刚加载完，刷新后重试；若持续如此，站点或策略在限制扩展";
 }
 
 // Settings opened from an incognito window cannot be an incognito tab, so let

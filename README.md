@@ -177,6 +177,29 @@ Chrome 出于安全考虑**默认不允许任何扩展在无痕窗口里运行**
 
 部分考试或管控环境（如 Respondus LockDown Browser、学校或单位统一下发的受管 Chrome）会在**策略层**直接禁用扩展。这类限制由管理员在浏览器外部下发，插件代码无法也不应该绕过。判断方法：`chrome://extensions` 里插件被禁用且无法启用、或扩展页显示「由贵单位管理」，就是策略封锁。要区分“环境限制”和“插件本身的问题”，按下面的离线自检跑一遍即可。
 
+## 网页能怎么弄坏插件，以及现在的对策
+
+「打开某个网站就用不了」通常是下面这几类手法。每一条都有对策，并且都用 `tools/probe-attacks.mjs` 在真实内核里逐条实测过（改造前 v0.3.0 → 改造后 v0.4.0）：
+
+| 网页手法 | 造成的后果 | 现在的对策 | 结果 |
+| --- | --- | --- | --- |
+| 页面 CSS 强杀：`#aqh-root{display:none!important}`、`[data-act]{display:none!important}`、`* { … }` | 气泡看不见 / 点不到 | UI 整体搬进 Shadow DOM（页面 CSS 够不到内部）；宿主元素带 inline `!important`，压过页面的 `!important` | 已挡住（改造前被挡） |
+| 全屏遮罩抢 `z-index: 2147483647`，并反复把自己后置 | 气泡被盖住、点不到 | 宿主用 popover API 进入**顶层**，任何 z-index 都盖不住它 | 已挡住（改造前被挡） |
+| `MutationObserver` + 定时清理，删除注入的节点 | 气泡被删掉 | UI 挂在 `<body>`（注入类 UI 的常规位置，避开「清理 `<html>` 下杂项」的脚本；若 body 链上有 `transform`/`filter` 这类会破坏 fixed 定位的属性，则自动回退挂到 `<html>`）；1 秒心跳自愈，被删后自动挂回且**已显示的内容不丢**；每次抓题前也会补挂一次 | 已挡住（改造前被挡） |
+| `window.addEventListener('click', …, true)` 吞掉事件 | 按钮点了没反应 | 内容脚本 `run_at: document_start`，所有 UI 点击走捕获期委托，注册早于页面脚本 | 已挡住（改造前被挡） |
+| 页面世界的猴子补丁：改写 `appendChild` / `remove` / `MutationObserver` / `getSelection` | 想让扩展失效 | 内容脚本运行在隔离世界，页面改自己的原型对象影响不到它 | 不受影响 |
+| 题目在 iframe 里，顶层文档读不到选区 | 划词抓不到题 | `all_frames: true`；抓选区时向所有帧收选区，取最长的一段回顶层渲染 | 已支持（新增） |
+| 页面禁用文字选择（`user-select: none`） | 划词根本选不中 | 无法对抗——这是站点的复制保护，而且对抗它就是帮人破防复制。改用「抓取截图」通道 | 已知限制 |
+
+### 一个真正挡不住的场景
+
+如果页面**持续地**把 `<body>` 里新增的节点全部删掉（`MutationObserver` + 定时器，见 `_testpage/attacks.html?atk=sweepbody`），UI 会在「挂上 → 被删」之间反复循环，你基本看不到气泡。这种页面同时也会删掉它自己的弹窗、下拉、浮层，现实里很少见；真遇到时扩展这边无解。
+
+### 不做「隐身」的原因
+
+有两件事不做：一是让扩展对页面**隐身**，二是绕开考试 / 受管环境的监考与管控。
+前者技术上也不成立——任何脚本走一遍 DOM 就能看到宿主节点，所谓隐身只是把检测门槛抬高一点点，挡不住有心人，却会让代码变得脆弱难维护；后者不是技术问题，是诚信问题，这条线不碰。练题、作业、自测这些场景里，这插件才是它该待的地方。
+
 ## 架构
 
 ```
@@ -213,12 +236,13 @@ QuizKing/
 ├─ src/                           # 扩展源码（加载这一层即可运行）
 │  ├─ manifest.json               # MV3 manifest
 │  ├─ background.js               # service worker：命令路由 / LLM HTTP / 存储
-│  ├─ content.js                  # 内容脚本：捕获通道 / 气泡 / FAB
-│  ├─ bubble.css                  # 气泡样式
+│  ├─ content.js                  # 内容脚本：捕获通道 / 气泡 / FAB（样式内联在 Shadow DOM 里）
 │  ├─ popup.html / popup.js
 │  ├─ options.html / options.css / options.js
 │  ├─ _locales/zh_CN/messages.json
 │  └─ icons/                      # 16 / 48 / 128 王字 PNG
+├─ _testpage/                     # 冒烟测试页（含各种“屏蔽扩展”手法的模拟页）
+├─ tools/                         # 真机验证脚本（见 tools/README.md）
 ├─ .github/
 │  ├─ ISSUE_TEMPLATE/             # bug / feature 模板
 │  └─ PULL_REQUEST_TEMPLATE.md

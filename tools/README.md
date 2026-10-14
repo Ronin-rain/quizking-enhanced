@@ -32,8 +32,24 @@ node tools\verify-incognito.mjs http://127.0.0.1:9334 http://127.0.0.1:8123/ htt
 通道与 `incognito` 标记、`aqh/test`、`aqh/open-options` 两条分支（普通窗口 / 无痕分支）、气泡渲染、
 抓题全链路（立即回执 → 增量推送 → 历史落盘）。
 
+## 另外两个脚本
+
+```powershell
+# 「网页屏蔽扩展」的各种手法，逐条实测（会开一堆标签页，约 1 分钟）
+node tools\probe-attacks.mjs http://127.0.0.1:9334 http://127.0.0.1:8123/attacks.html
+
+# 题目在 iframe 里时，划词通道能否跨帧拿到选区
+node tools\verify-frame.mjs http://127.0.0.1:9334 http://127.0.0.1:8123/frame.html
+```
+
+`probe-attacks.mjs` 会依次打开 `_testpage/attacks.html?atk=<每种手法>`，对每个页面检查四件事：
+UI 是否渲染、是否可见、`elementFromPoint` 命中的是不是我们自己（有没有被盖住）、✕ 按钮是否点得动；
+最后再从页面侧把宿主节点删掉一次，验证自愈能不能把它挂回来。
+
 ## 已知边界
 
 真要压测「无痕标签页」本身，需要先由人在 `chrome://extensions` 里打开「允许在无痕模式下使用」——
 这一步是浏览器安全设计，脚本无法代劳（改 profile 的 Secure Preferences 会破坏其 HMAC 校验）。
 未开启时 `chrome.extension.isAllowedIncognitoAccess()` 返回 `false`，无痕窗口里不会注入内容脚本。
+
+`atk=sweepbody`（持续清空 `<body>` 新增节点）是刻意保留的**必败**用例，用来标记已知上限，别把它当 bug 修。

@@ -22,6 +22,343 @@
   // In-flight multi-provider request: { reqId, roster, items, promptMode, label }.
   let activeReq = null;
 
+  // --- Hardened container ---------------------------------------------------
+  // Pages break injected UIs in a handful of ways; each one has a counter here:
+  //   * `#aqh-root{display:none!important}` / `* { ... }` resets
+  //     → the UI lives in a Shadow DOM (page CSS cannot reach inside) and the
+  //       host carries inline !important declarations (beats page !important).
+  //   * a full-screen overlay at z-index 2147483647
+  //     → the host is promoted to the top layer via the popover API.
+  //   * MutationObserver sweeps that delete unknown nodes
+  //     → a 1s tick re-attaches the host; its content (open bubble included)
+  //       survives, because it never left the detached host's shadow root.
+  //   * `window.addEventListener('click', …, true)` swallowing events
+  //     → the manifest runs at document_start and all UI clicks are delegated
+  //       through one capture listener registered before any page script.
+  // What hardening cannot do: hide the extension. Any page script can walk the
+  // DOM and see the host element, and no extension API changes that.
+  const IS_TOP_FRAME = (() => {
+    try { return window.top === window; } catch (e) { return false; }
+  })();
+
+  const HOST_STYLE = {
+    all: "initial",
+    position: "fixed",
+    inset: "0",
+    width: "100%",
+    height: "100%",
+    margin: "0",
+    padding: "0",
+    border: "0",
+    background: "transparent",
+    "z-index": "2147483647",
+    display: "block",
+    visibility: "visible",
+    opacity: "1",
+    overflow: "visible",
+    "max-width": "none",
+    "max-height": "none",
+    transform: "none",
+    filter: "none",
+    "clip-path": "none",
+    contain: "none",
+    "pointer-events": "none",
+    "mix-blend-mode": "normal",
+  };
+
+  const BUBBLE_CSS = `
+:host {
+  all: initial;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", Roboto, sans-serif;
+  color: #1f2330;
+}
+
+#aqh-bubble {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  width: 360px;
+  max-width: 60vw;
+  max-height: 60vh;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 14px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  font-size: 14px;
+  line-height: 1.5;
+  opacity: var(--aqh-o, 0.95);
+  /* Answer text stays selectable even on pages that kill selection globally. */
+  user-select: text;
+  pointer-events: auto;
+  filter: saturate(clamp(0, (var(--aqh-o, 0.95) - 0.4) / 0.4, 1));
+}
+
+#aqh-title-glyph,
+.aqh-btn-primary,
+.aqh-consensus,
+.aqh-item-flag {
+  opacity: clamp(0.3, (var(--aqh-o, 0.95) - 0.4) / 0.4, 1);
+}
+
+#aqh-title {
+  opacity: clamp(0, (var(--aqh-o, 0.95) - 0.4) / 0.4, 1);
+}
+
+.aqh-btn-primary {
+  appearance: none;
+  border: 0;
+  background: #3563ff;
+  color: #fff;
+  padding: 6px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.aqh-btn-primary:hover { filter: brightness(1.08); }
+
+#aqh-bubble.aqh-hide { display: none; }
+
+#aqh-header {
+  cursor: move;
+  background: linear-gradient(180deg, #f7f8fc 0%, #eef1f8 100%);
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  user-select: none;
+}
+#aqh-title-glyph {
+  display: inline-block;
+  width: 22px; height: 22px; line-height: 22px;
+  text-align: center;
+  background: #3563ff; color: #fff;
+  border-radius: 6px;
+  margin-right: 8px;
+  font-family: "PingFang SC","Microsoft YaHei",Heiti,sans-serif;
+  font-weight: 700; font-size: 14px;
+}
+#aqh-title-text { font-weight: 600; }
+#aqh-title {
+  font-weight: 600;
+  flex: 1;
+  font-size: 13px;
+  color: #3b3f51;
+}
+/* Incognito marker: the same code runs in an incognito window, but the user
+   deserves to see which window an answer came from. Fades with the title row. */
+#aqh-incog {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: #eef1f8;
+  border: 1px solid #dfe3ee;
+  color: #5b6273;
+  font-size: 11px;
+  font-weight: 500;
+}
+#aqh-actions { display: flex; gap: 4px; }
+#aqh-actions button {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 4px 8px;
+  color: #5b6273;
+  border-radius: 6px;
+}
+#aqh-actions button:hover { background: rgba(0, 0, 0, 0.06); }
+
+#aqh-body { padding: 10px 12px; overflow: auto; flex: 1; }
+
+.aqh-answer-label, .aqh-reasoning-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #6b7080;
+  margin: 4px 0 2px;
+}
+.aqh-answer-block {
+  background: #eaf3ff;
+  border: 1px solid #cfe1ff;
+  border-radius: 10px;
+  padding: 8px 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.aqh-reasoning-block {
+  background: #fafbff;
+  border: 1px solid #eef0f6;
+  border-radius: 10px;
+  padding: 8px 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.aqh-pre {
+  background: #f3f4f8;
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.aqh-err { color: #b3261e; }
+
+/* --- Multi-provider results --------------------------------------------- */
+.aqh-consensus {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 10px;
+  border-radius: 8px;
+  margin-bottom: 8px;
+  border: 1px solid transparent;
+}
+.aqh-consensus.aqh-same { background: #eaf7ee; border-color: #cbe8d5; color: #1a7f42; }
+.aqh-consensus.aqh-diff { background: #fff6e8; border-color: #f2ddba; color: #9a6212; }
+.aqh-consensus.aqh-wait { background: #f2f3f8; border-color: #e4e6ef; color: #6b7080; }
+.aqh-item-pending { border-style: dashed; background: #fbfcfe; }
+.aqh-item-pending .aqh-item-ms { font-style: italic; }
+
+.aqh-item {
+  border: 1px solid #eef0f6;
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: #fafbff;
+  margin-bottom: 8px;
+}
+.aqh-item:last-child { margin-bottom: 0; }
+.aqh-item-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+.aqh-item-label { font-weight: 600; color: #3b3f51; }
+.aqh-item-model {
+  color: #6b7080;
+  background: #eef1f8;
+  border-radius: 999px;
+  padding: 1px 7px;
+  font-size: 11px;
+}
+.aqh-item-ms { color: #99a0b3; font-size: 11px; margin-left: auto; }
+.aqh-item-flag {
+  background: #fff6e8;
+  border: 1px solid #f2ddba;
+  color: #9a6212;
+  border-radius: 999px;
+  padding: 1px 7px;
+  font-size: 11px;
+}
+.aqh-item.aqh-minority { border-color: #f2ddba; background: #fffdf8; }
+.aqh-item.aqh-item-fail { border-color: #f0d5d2; background: #fdf6f5; }
+.aqh-item .aqh-answer-block { margin: 0; }
+.aqh-item-reason { margin-top: 6px; }
+.aqh-item-reason > summary {
+  cursor: pointer;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #6b7080;
+  list-style: none;
+}
+.aqh-item-reason > summary::-webkit-details-marker { display: none; }
+.aqh-item-reason > summary::before { content: "▸ "; }
+.aqh-item-reason[open] > summary::before { content: "▾ "; }
+.aqh-item-reason .aqh-reasoning-block { margin-top: 4px; }
+
+#aqh-status {
+  font-size: 12px;
+  color: #6b7080;
+  padding: 6px 10px;
+  border-top: 1px solid rgba(0, 0, 0, 0.05);
+  background: rgba(247, 248, 252, 0.7);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.aqh-spinner {
+  width: 12px; height: 12px;
+  border: 2px solid #b9c0d4;
+  border-top-color: #3563ff;
+  border-radius: 50%;
+  animation: aqh-spin 0.7s linear infinite;
+  display: inline-block;
+}
+@keyframes aqh-spin { to { transform: rotate(360deg); } }
+
+#aqh-fab {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  width: 44px; height: 44px;
+  border-radius: 50%;
+  background: #3563ff;
+  color: #fff;
+  border: 0;
+  cursor: pointer;
+  box-shadow: 0 8px 22px rgba(53, 99, 255, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: "PingFang SC","Microsoft YaHei",Heiti,sans-serif;
+  font-weight: 700;
+  font-size: 18px;
+  pointer-events: auto;
+  opacity: 0.85;
+}
+#aqh-fab:hover { opacity: 1; }
+#aqh-fab.aqh-fab-expanded {
+  width: auto;
+  height: 40px;
+  border-radius: 999px;
+  padding: 0 6px;
+  gap: 6px;
+}
+.aqh-fab-btn {
+  appearance: none;
+  border: 0;
+  background: rgba(255,255,255,0.18);
+  color: #fff;
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.aqh-fab-btn:hover { background: rgba(255,255,255,0.32); }
+
+.aqh-mask {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.25);
+  cursor: crosshair;
+  pointer-events: auto;
+}
+.aqh-mask-hint {
+  position: fixed;
+  left: 50%;
+  top: 12px;
+  transform: translateX(-50%);
+  background: rgba(0,0,0,0.72);
+  color: #fff;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+}
+`;
+
+  let hostEl = null;
+  let shadowEl = null;
+  let healTimer = null;
+  let fabEl = null;
+  let fabExpanded = false;
+  let fabCollapseTimer = null;
+
   function getRuntime() { return chrome.runtime; }
 
   function callBg(type, payload) {
@@ -34,14 +371,145 @@
     });
   }
 
-  function ensureRoot() {
-    let root = document.getElementById(ROOT_ID);
-    if (root) return root;
-    root = document.createElement("div");
-    root.id = ROOT_ID;
-    document.documentElement.appendChild(root);
-    return root;
+  function applyHostStyle(el) {
+    for (const prop of Object.keys(HOST_STYLE)) {
+      // Inline !important outranks any page stylesheet, including page !important.
+      el.style.setProperty(prop, HOST_STYLE[prop], prop === "all" ? "" : "important");
+    }
   }
+
+  // A transformed/filtered ancestor turns position:fixed into "absolute to that
+  // ancestor", which would let the bubble scroll away with the page.
+  function createsContainingBlock(el) {
+    let cs;
+    try { cs = getComputedStyle(el); } catch (e) { return false; }
+    if (!cs) return false;
+    if (cs.transform && cs.transform !== "none") return true;
+    if (cs.filter && cs.filter !== "none") return true;
+    if (cs.backdropFilter && cs.backdropFilter !== "none") return true;
+    if (cs.perspective && cs.perspective !== "none") return true;
+    if (cs.contain && /paint|layout|strict|content/.test(cs.contain)) return true;
+    if (cs.willChange && /transform|filter|perspective/.test(cs.willChange)) return true;
+    return false;
+  }
+
+  // Where to hang the host. <body> is where injected UI conventionally lives and
+  // it dodges the common "delete stray children of <html>" cleanup script — but
+  // only when nothing in body's chain would break fixed positioning.
+  function pickParent() {
+    const body = document.body;
+    if (!body) return document.documentElement; // document_start: body not parsed yet
+    for (let el = body; el && el !== document.documentElement; el = el.parentElement) {
+      if (createsContainingBlock(el)) return document.documentElement;
+    }
+    return body;
+  }
+
+  // The popover API puts the host in the top layer, above every z-index on the
+  // page. Unsupported browsers simply keep the normal fixed positioning.
+  function enterTopLayer() {
+    if (!hostEl || typeof hostEl.showPopover !== "function") return;
+    try {
+      if (!hostEl.matches(":popover-open")) hostEl.showPopover();
+    } catch (e) { void e; }
+  }
+
+  function ensureRoot() {
+    if (!hostEl) {
+      const existing = document.getElementById(ROOT_ID);
+      if (existing && existing.shadowRoot) {
+        hostEl = existing;
+        shadowEl = existing.shadowRoot;
+      } else {
+        if (existing) existing.remove();
+        hostEl = document.createElement("div");
+        hostEl.id = ROOT_ID;
+        hostEl.setAttribute("popover", "manual");
+        applyHostStyle(hostEl);
+        shadowEl = hostEl.attachShadow({ mode: "open" });
+        const style = document.createElement("style");
+        style.textContent = BUBBLE_CSS;
+        shadowEl.appendChild(style);
+      }
+    }
+    // After a page DOM sweep the host is detached on purpose: put it back, and
+    // the bubble that lives inside its shadow root comes back with it.
+    const parent = pickParent();
+    if (hostEl.parentNode !== parent) parent.appendChild(hostEl);
+    enterTopLayer();
+    return hostEl;
+  }
+
+  // Everything UI-side is looked up inside the shadow root.
+  function q(id) {
+    if (shadowEl) {
+      const el = shadowEl.getElementById(id);
+      if (el) return el;
+    }
+    return document.getElementById(id);
+  }
+
+  function uiIsLive() {
+    return !!(q("aqh-bubble") || q("aqh-fab"));
+  }
+
+  function startHealing() {
+    if (!IS_TOP_FRAME || healTimer) return;
+    healTimer = setInterval(() => {
+      if (!uiIsLive()) { stopHealing(); return; }
+      ensureRoot(); // re-attach after a sweep, re-enter the top layer
+    }, 1000);
+  }
+
+  function stopHealing() {
+    if (healTimer) { clearInterval(healTimer); healTimer = null; }
+  }
+
+  function stopHealingIfIdle() {
+    if (!uiIsLive()) stopHealing();
+  }
+
+  // One capture-phase handler for every button in the UI, registered while the
+  // document is still empty so a page listener on window/document cannot eat
+  // the click before it reaches us.
+  function onUiClick(e) {
+    if (!hostEl) return;
+    const path = typeof e.composedPath === "function" ? e.composedPath() : [];
+    if (!path.includes(hostEl)) return;
+    let actEl = null;
+    for (const node of path) {
+      if (node === hostEl) break;
+      if (node instanceof Element && node.hasAttribute("data-act")) { actEl = node; break; }
+    }
+    if (!actEl) return;
+    e.preventDefault();
+    e.stopPropagation();
+    runAction(actEl.getAttribute("data-act"), actEl.getAttribute("data-k"));
+  }
+
+  function runAction(act, k) {
+    if (act === "close") return closeBubble();
+    if (act === "min") {
+      const bubble = q("aqh-bubble");
+      if (bubble) bubble.classList.toggle("aqh-hide");
+      return;
+    }
+    if (act === "settings" || act === "openopts") return openSettings();
+    if (act === "fab-toggle") {
+      if (!fabExpanded) { renderFab(true); return; }
+      handleTrigger("selection");
+      renderFab(false);
+      return;
+    }
+    if (act === "fab-run") {
+      handleTrigger(k);
+      renderFab(false);
+    }
+  }
+
+  // Capture phase on window, installed before page scripts (see manifest
+  // run_at: document_start).
+  window.addEventListener("click", onUiClick, true);
 
   function getCssOpacity() {
     const v = Number((cfg && cfg.bubbleOpacity) ?? 0.95);
@@ -59,8 +527,12 @@
 
   function renderBubble(html, opts) {
     opts = opts || {};
-    const root = ensureRoot();
-    root.innerHTML = "";
+    // Only the top frame owns UI: with all_frames enabled, a subframe that drew
+    // its own bubble would be clipped by the iframe box.
+    if (!IS_TOP_FRAME) return;
+    ensureRoot();
+    const stale = q("aqh-bubble");
+    if (stale) stale.remove();
     const wrap = document.createElement("div");
     wrap.id = "aqh-bubble";
     wrap.style.setProperty("--aqh-o", String(getCssOpacity()));
@@ -78,15 +550,10 @@
       '</div>' +
       '<div id="aqh-body">' + html + '</div>' +
       '<div id="aqh-status">' + (opts.status || "") + '</div>';
-    root.appendChild(wrap);
-
-    wrap.querySelector('[data-act="close"]').addEventListener("click", closeBubble);
-    wrap.querySelector('[data-act="min"]').addEventListener("click", () => wrap.classList.toggle("aqh-hide"));
-    wrap.querySelector('[data-act="settings"]').addEventListener("click", () => {
-      openSettings();
-    });
+    shadowEl.appendChild(wrap);
 
     enableDrag(wrap, wrap.querySelector("#aqh-header"));
+    startHealing();
   }
 
   // Ask background to open the options page: from an incognito window Chrome
@@ -101,7 +568,7 @@
   }
 
   function setStatus(text, loading) {
-    const status = document.getElementById("aqh-status");
+    const status = q("aqh-status");
     if (!status) return;
     status.innerHTML = loading
       ? '<span class="aqh-spinner"></span><span>' + escapeHtml(text) + '</span>'
@@ -109,8 +576,10 @@
   }
 
   function closeBubble() {
-    const root = document.getElementById(ROOT_ID);
-    if (root) root.innerHTML = "";
+    const bubble = q("aqh-bubble");
+    if (bubble) bubble.remove();
+    activeReq = null;
+    stopHealingIfIdle();
   }
 
   function enableDrag(box, handle) {
@@ -165,7 +634,8 @@
 
   function pickRectOnPage() {
     return new Promise((resolve) => {
-      const host = document.documentElement || document.body;
+      ensureRoot();
+      const host = shadowEl; // the crop overlay belongs to our shadow root too
 
       const mask = document.createElement("div");
       mask.id = "aqh-mask";
@@ -191,9 +661,9 @@
         "pointer-events:none;display:none;z-index:2147483647;";
       host.appendChild(sel);
 
-      const fab = document.getElementById("aqh-fab");
+      const fab = q("aqh-fab");
       if (fab) fab.style.pointerEvents = "none";
-      const bubble = document.getElementById("aqh-bubble");
+      const bubble = q("aqh-bubble");
       const prevBubblePE = bubble ? bubble.style.pointerEvents : "";
       if (bubble) bubble.style.pointerEvents = "none";
 
@@ -299,12 +769,10 @@
       renderBubble(
         '<div class="aqh-err">未配置 API Key。</div>' +
         '<div style="margin-top:8px">' +
-          '<button id="aqh-openopts" class="aqh-btn-primary">打开设置</button>' +
+          '<button id="aqh-openopts" class="aqh-btn-primary" data-act="openopts">打开设置</button>' +
         '</div>',
         { status: "需要先在选项页填写 API Key" }
       );
-      const b = document.getElementById("aqh-openopts");
-      if (b) b.addEventListener("click", openSettings);
       return;
     }
     const n = ((cfg && cfg.providers) || []).filter((p) => p.enabled && p.hasKey).length;
@@ -351,7 +819,8 @@
   function renderProgress() {
     const st = activeReq;
     if (!st) return;
-    const body = document.getElementById("aqh-body");
+    ensureRoot(); // insurance: a page sweep may have detached the host
+    const body = q("aqh-body");
     if (!body) return;
     const items = currentItems();
     body.innerHTML = ""; // re-render the whole set; each arrival replaces the previous frame
@@ -363,7 +832,7 @@
   }
 
   function appendError(msg) {
-    const body = document.getElementById("aqh-body");
+    const body = q("aqh-body");
     if (!body) return;
     const div = document.createElement("div");
     div.className = "aqh-err";
@@ -400,7 +869,8 @@
   }
 
   function showAnswer(r) {
-    const body = document.getElementById("aqh-body");
+    ensureRoot(); // insurance: a page sweep may have detached the host
+    const body = q("aqh-body");
     if (!body) return;
     const items = Array.isArray(r.items) ? r.items : null;
     log("showAnswer items=", items ? items.length : "(legacy)", "mode=", r.promptMode);
@@ -598,63 +1068,58 @@
   }
 
   function toggleFab() {
-    const existing = document.getElementById("aqh-fab");
-    if (existing) { existing.remove(); return false; }
+    const existing = q("aqh-fab");
+    if (existing) {
+      existing.remove();
+      fabEl = null;
+      stopHealingIfIdle();
+      return false;
+    }
     ensureFab();
     return true;
   }
 
-  function ensureFab() {
-    let fab = document.getElementById("aqh-fab");
-    if (fab) return fab;
-    fab = document.createElement("button");
-    fab.id = "aqh-fab";
-    fab.title = "QuizKing · 答题王";
-    fab.textContent = "王";
-    fab.style.fontFamily = '"PingFang SC","Microsoft YaHei",Heiti,sans-serif';
-    fab.style.fontWeight = "700";
-    document.documentElement.appendChild(fab);
+  function renderFab(expanded) {
+    if (!fabEl) return;
+    fabExpanded = !!expanded;
+    if (expanded) {
+      fabEl.classList.add("aqh-fab-expanded");
+      fabEl.innerHTML =
+        '<span class="aqh-fab-btn" data-act="fab-run" data-k="selection">选区</span>' +
+        '<span class="aqh-fab-btn" data-act="fab-run" data-k="visible">截图</span>' +
+        '<span class="aqh-fab-btn" data-act="fab-run" data-k="page">整页</span>' +
+        '<span class="aqh-fab-btn" data-act="fab-run" data-k="toggle">气泡</span>';
+    } else {
+      fabEl.classList.remove("aqh-fab-expanded");
+      fabEl.textContent = "王";
+    }
+  }
 
-    let expanded = false;
-    let collapseTimer = null;
-    const render = () => {
-      if (expanded) {
-        fab.classList.add("aqh-fab-expanded");
-        fab.innerHTML =
-          '<span class="aqh-fab-btn" data-k="selection">选区</span>' +
-          '<span class="aqh-fab-btn" data-k="visible">截图</span>' +
-          '<span class="aqh-fab-btn" data-k="page">整页</span>' +
-          '<span class="aqh-fab-btn" data-k="toggle">气泡</span>';
-        fab.querySelectorAll("[data-k]").forEach((el) => {
-          el.addEventListener("click", (e) => {
-            e.stopPropagation();
-            const k = el.getAttribute("data-k");
-            handleTrigger(k);
-            collapse();
-          });
-        });
-      } else {
-        fab.classList.remove("aqh-fab-expanded");
-        fab.textContent = "王";
-      }
-    };
-    const expand = () => { expanded = true; render(); };
-    const collapse = () => { expanded = false; render(); };
-    fab.addEventListener("mouseenter", () => { clearTimeout(collapseTimer); expand(); });
-    fab.addEventListener("mouseleave", () => {
-      clearTimeout(collapseTimer);
-      collapseTimer = setTimeout(collapse, 350);
+  function ensureFab() {
+    if (!IS_TOP_FRAME) return null;
+    ensureRoot();
+    if (fabEl && fabEl.isConnected) return fabEl;
+    fabEl = q("aqh-fab");
+    if (fabEl) return fabEl;
+    fabEl = document.createElement("button");
+    fabEl.id = "aqh-fab";
+    fabEl.title = "QuizKing · 答题王";
+    fabEl.setAttribute("data-act", "fab-toggle");
+    shadowEl.appendChild(fabEl);
+    fabEl.addEventListener("mouseenter", () => { clearTimeout(fabCollapseTimer); renderFab(true); });
+    fabEl.addEventListener("mouseleave", () => {
+      clearTimeout(fabCollapseTimer);
+      fabCollapseTimer = setTimeout(() => renderFab(false), 350);
     });
-    fab.addEventListener("click", (e) => {
-      e.stopPropagation();
-      if (!expanded) { expand(); return; }
-      handleTrigger("selection");
-      collapse();
-    });
-    return fab;
+    renderFab(false);
+    startHealing();
+    return fabEl;
   }
 
   async function handleTrigger(kind) {
+    // Insurance: put the host back before drawing instead of waiting for the
+    // next heal tick.
+    ensureRoot();
     if (kind === "toggle") {
       // Toggle the 王字 FAB (default hidden, click to summon).
       toggleFab();
@@ -662,12 +1127,19 @@
     }
     try {
       if (kind === "selection") {
-        const text = getSelectionText();
+        let text = getSelectionText();
+        let fromFrame = false;
+        if (!text) {
+          // The question may live inside an iframe the top frame cannot read:
+          // background asks every frame and hands back the longest selection.
+          const r = await callBg("aqh/collect-frame-selection");
+          if (r && r.ok && r.text) { text = r.text; fromFrame = true; }
+        }
         if (!text) {
           renderBubble('<div class="aqh-err">未选中文本。</div>', { status: "请先在页面选中文字" });
           return;
         }
-        await askAndShow({ mode: "text", text }, "[selection]\n" + text);
+        await askAndShow({ mode: "text", text }, (fromFrame ? "[selection in frame]\n" : "[selection]\n") + text);
       } else if (kind === "visible") {
         const dataUrl = await chooseCropAndCapture();
         await askAndShow(
@@ -689,6 +1161,23 @@
 
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (!msg || !msg.type) return;
+    // A subframe only answers "do you have a selection?"; every UI trigger and
+    // every render stays in the top frame.
+    if (msg.type === "aqh/want-selection") {
+      const text = getSelectionText();
+      if (text) {
+        try {
+          chrome.runtime.sendMessage(
+            { type: "aqh/selection-part", payload: { reqId: msg.payload && msg.payload.reqId, text } },
+            () => { void chrome.runtime.lastError; }
+          );
+        } catch (e) { void e; }
+      }
+      return sendResponse({ ok: true, has: !!text });
+    }
+    if (msg.type === "aqh/capture" && !IS_TOP_FRAME) return sendResponse({ ok: false, reason: "not-top-frame" });
+    if (msg.type === "aqh/close" && !IS_TOP_FRAME) return sendResponse({ ok: false, reason: "not-top-frame" });
+    if (msg.type === "aqh/show-fab" && !IS_TOP_FRAME) return sendResponse({ ok: false, reason: "not-top-frame" });
     if (msg.type === "aqh/capture") {
       handleTrigger(msg.payload && msg.payload.kind || "selection");
       return sendResponse({ ok: true });
@@ -723,7 +1212,7 @@
           // Single provider: plain layout (or a lone failure card).
           showAnswer({ items, promptMode: p.promptMode || st.promptMode });
         } else {
-          const body = document.getElementById("aqh-body");
+          const body = q("aqh-body");
           if (body) {
             body.innerHTML = "";
             renderMulti(body, items, p.promptMode || st.promptMode, st.label);
@@ -741,11 +1230,13 @@
     if (!Number.isFinite(v)) return;
     if (!cfg) cfg = {};
     cfg.bubbleOpacity = v;
-    const bubble = document.getElementById("aqh-bubble");
+    const bubble = q("aqh-bubble");
     if (bubble) bubble.style.setProperty("--aqh-o", String(getCssOpacity()));
   });
 
   (async () => {
+    // Subframes carry no UI and no config worth fetching.
+    if (!IS_TOP_FRAME) return;
     const res = (await callBg("aqh/get-config")) || {};
     cfg = res.cfg || null;
     incognito = !!res.incognito;

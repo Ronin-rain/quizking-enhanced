@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>QuizKing 攻击面测试页</title>
+<style>
+  body { font-family: system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; margin: 0; padding: 24px; }
+  h1 { font-size: 18px; }
+  #cover { position: fixed; inset: 0; background: rgba(20, 40, 90, 0.35); z-index: 2147483647; display: none; }
+</style>
+</head>
+<body>
+  <h1 id="q">1 + 1 = ?</h1>
+  <p>攻击模式：<b id="atk">none</b></p>
+  <p id="text">选中这段文字可以测试划词通道。</p>
+  <div id="cover"></div>
+  <script>
+    // 这个页面只做一件事：用各种真实站点会用的手法，去弄坏注入进来的扩展 UI。
+    // 每个模式用 ?atk=xxx 打开，工具脚本会逐个跑。
+    const atk = new URLSearchParams(location.search).get("atk") || "none";
+    document.getElementById("atk").textContent = atk;
+    const rootChildren = () => Array.from(document.documentElement.children);
+
+    if (atk === "sweep") {
+      // 反广告脚本的典型做法：任何刚插进 <html> 的未知节点，立刻删掉
+      const kill = () => {
+        for (const el of rootChildren()) {
+          const tag = el.tagName;
+          if (tag === "HEAD" || tag === "BODY") continue;
+          el.remove();
+        }
+      };
+      new MutationObserver(kill).observe(document.documentElement, { childList: true });
+      setInterval(kill, 300);
+    }
+
+    if (atk === "wipeonce") {
+      // 单次暴力清理：把宿主删掉一次，之后不再动手（用于确定性验证自愈）
+      setTimeout(() => {
+        for (const el of rootChildren()) {
+          const tag = el.tagName;
+          if (tag === "HEAD" || tag === "BODY") continue;
+          el.remove();
+        }
+      }, 500);
+    }
+
+    if (atk === "sweepbody") {
+      // 更狠的一档：连 <body> 里新增的节点也一起清（页面自己的弹层也会被清掉）
+      const known = new Set(Array.from(document.body.children));
+      const kill = () => {
+        for (const el of Array.from(document.body.children)) {
+          if (!known.has(el)) el.remove();
+        }
+      };
+      new MutationObserver(kill).observe(document.body, { childList: true });
+      setInterval(kill, 300);
+    }
+
+    if (atk === "css") {
+      const st = document.createElement("style");
+      st.textContent = [
+        '#aqh-root, div[id^="aqh"], [id*="aqh"], [class*="aqh"] { display: none !important; visibility: hidden !important; }',
+        '#aqh-root * { display: none !important; }',
+        '.aqh-item, [data-act] { display: none !important; }',
+        '* { user-select: none !important; }',
+      ].join("\n");
+      document.head.appendChild(st);
+    }
+
+    if (atk === "transformbody") {
+      // body 上有 transform 会让 position:fixed 变成相对 body 定位，
+      // 扩展应当检测到并回退到 <html>，而不是把气泡挂在一个会跟着滚动跑的位置
+      document.body.style.transform = "translateZ(0)";
+    }
+
+    if (atk === "zfight") {
+      const c = document.getElementById("cover");
+      c.style.display = "block";
+      // 反复把自己挪成最后一个子节点，抢 z-index 平局时的绘制顺序
+      setInterval(() => document.documentElement.appendChild(c), 300);
+    }
+
+    if (atk === "blockclick") {
+      // 在 window 捕获阶段吞掉所有点击/指针事件
+      for (const t of ["click", "pointerdown", "mousedown", "mouseup"]) {
+        window.addEventListener(t, (e) => { e.stopImmediatePropagation(); }, true);
+      }
+    }
+
+    if (atk === "monkey") {
+      // 页面世界里的猴子补丁：隔离世界理论上完全不受影响
+      try {
+        Element.prototype.appendChild = function () { throw new Error("blocked by page"); };
+        Element.prototype.remove = function () { /* noop */ };
+        Node.prototype.removeChild = function () { return null; };
+        window.MutationObserver = function () { return { observe() {}, disconnect() {} }; };
+        document.getSelection = () => null;
+        window.getSelection = () => null;
+      } catch (e) { /* ignore */ }
+    }
+
+    if (atk === "selectnone") {
+      document.addEventListener("selectstart", (e) => e.preventDefault());
+      document.body.style.userSelect = "none";
+    }
+  </script>
+</body>
+</html>

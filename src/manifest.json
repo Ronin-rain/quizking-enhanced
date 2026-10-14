@@ -3,7 +3,7 @@
   "name": "__MSG_extName__",
   "default_locale": "zh_CN",
   "description": "__MSG_extDescription__",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "minimum_chrome_version": "114",
   "incognito": "spanning",
   "action": {
@@ -50,9 +50,9 @@
     {
       "matches": ["<all_urls>"],
       "js": ["content.js"],
-      "css": ["bubble.css"],
-      "run_at": "document_idle",
-      "all_frames": false
+      "run_at": "document_start",
+      "all_frames": true,
+      "match_about_blank": true
     }
   ],
   "icons": {

@@ -156,11 +156,39 @@ async function openOptions(incognito) {
 async function sendToContent(tab, type, payload) {
   if (!tab || !tab.id) return;
   try {
-    await chrome.tabs.sendMessage(tab.id, { type, payload });
+    // frameId 0 = the top frame only. With all_frames enabled every frame runs
+    // content.js, and only the top frame may draw the bubble.
+    await chrome.tabs.sendMessage(tab.id, { type, payload }, { frameId: 0 });
   } catch (e) {
     // ignore if no content script (e.g. chrome:// pages)
     console.warn("sendToContent failed", type, e && e.message);
   }
+}
+
+// --- Selection living inside an iframe ------------------------------------
+// Quiz platforms often render the question in a frame the top document cannot
+// read. Ask every frame for its selection, keep the longest one.
+const FRAME_SELECTION_WINDOW_MS = 250;
+const frameSelSlots = new Map();
+
+function collectFrameSelections(tabId) {
+  return new Promise((resolve) => {
+    if (tabId === undefined || tabId === null) return resolve("");
+    const reqId = newReqId();
+    const slot = { parts: [] };
+    frameSelSlots.set(reqId, slot);
+    try {
+      // No frameId: broadcast to every frame in the tab.
+      chrome.tabs.sendMessage(tabId, { type: "aqh/want-selection", payload: { reqId } }, () => {
+        void chrome.runtime.lastError;
+      });
+    } catch (e) { void e; }
+    setTimeout(() => {
+      frameSelSlots.delete(reqId);
+      const best = slot.parts.sort((a, b) => b.length - a.length)[0] || "";
+      resolve(best);
+    }, FRAME_SELECTION_WINDOW_MS);
+  });
 }
 
 async function triggerCapture(kind) {
@@ -328,7 +356,7 @@ function pushToTab(tabId, type, payload) {
   if (tabId === undefined || tabId === null) return;
   try {
     // Callback form so a closed tab surfaces as lastError instead of a throw.
-    chrome.tabs.sendMessage(tabId, { type, payload }, () => { void chrome.runtime.lastError; });
+    chrome.tabs.sendMessage(tabId, { type, payload }, { frameId: 0 }, () => { void chrome.runtime.lastError; });
   } catch (e) { void e; }
 }
 
@@ -435,6 +463,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const incognito = inIncognitoTab(sender) || !!(msg.payload && msg.payload.incognito);
         return sendResponse(await openOptions(incognito));
       }
+      if (msg.type === "aqh/collect-frame-selection") {
+        const tabId = sender.tab && sender.tab.id;
+        return sendResponse({ ok: true, text: await collectFrameSelections(tabId) });
+      }
+      if (msg.type === "aqh/selection-part") {
+        const p = msg.payload || {};
+        const slot = frameSelSlots.get(p.reqId);
+        if (slot && p.text) slot.parts.push(String(p.text));
+        return sendResponse({ ok: true });
+      }
       if (msg.type === "aqh/capture-visible-tab") {
         const tab = sender.tab || (await getActiveTab());
         const dataUrl = await captureVisibleToBase64(tab);
@@ -475,7 +513,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         return sendResponse({
           ok: true,
           cfg: sanitizeCfg(cfg),
-          routes: ["aqh/get-config", "aqh/open-options", "aqh/capture-visible-tab", "aqh/ask", "aqh/test", "aqh/selftest"],
+          routes: [
+            "aqh/get-config", "aqh/open-options", "aqh/collect-frame-selection",
+            "aqh/selection-part", "aqh/capture-visible-tab", "aqh/ask", "aqh/test", "aqh/selftest",
+          ],
           flags: {
             selftest: !!self.__AQH_SELFTEST__,
             incognitoContext: !!chrome.extension.inIncognitoContext,

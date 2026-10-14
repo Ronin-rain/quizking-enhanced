@@ -7,11 +7,13 @@ const PAGE = process.argv[3] || "http://127.0.0.1:8123/";
 const MOCK = process.argv[4] || "http://127.0.0.1:8135/v1";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const OPEN = [];
 
 function rpc(wsUrl) {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(wsUrl);
     const st = { id: 0, pending: new Map(), events: [], ws };
+    OPEN.push(st);
     ws.addEventListener("message", (ev) => {
       const m = JSON.parse(ev.data);
       if (m.id && st.pending.has(m.id)) {
@@ -31,6 +33,12 @@ function rpc(wsUrl) {
     ws.addEventListener("open", () => resolve(st));
     ws.addEventListener("error", () => reject(new Error("ws failed: " + wsUrl)));
   });
+}
+
+function finish(code) {
+  process.exitCode = code;
+  for (const st of OPEN) { try { st.ws.close(); } catch (e) { void e; } }
+  setTimeout(() => process.exit(code), 500).unref();
 }
 
 async function evaluate(st, expression, contextId) {
@@ -69,7 +77,7 @@ if (sw) {
   swSt = await rpc(sw.webSocketDebuggerUrl);
   const mf = json(await evaluate(swSt, "JSON.stringify(chrome.runtime.getManifest())"));
   say(mf?.incognito === "spanning", "manifest.incognito = spanning", mf?.incognito);
-  say(mf?.version === "0.3.1", "manifest.version = 0.3.1", mf?.version);
+  say(mf?.version === "0.4.0", "manifest.version = 0.4.0", mf?.version);
   const access = await evaluate(swSt, "new Promise(r=>chrome.extension.isAllowedIncognitoAccess(r))");
   say(access.value !== undefined, "isAllowedIncognitoAccess() 可读", access.value ?? access.error);
 }
@@ -118,10 +126,25 @@ if (page) {
       "new Promise(async r=>{const t=await chrome.tabs.query({url:" + JSON.stringify(TARGET) + "});" +
       "await chrome.tabs.sendMessage(t[0].id,{type:'aqh/capture',payload:{kind:'selection'}});r(1)})");
     await sleep(400);
-    const dom = json(await evaluate(s,
-      "JSON.stringify({bubble:!!document.getElementById('aqh-bubble'),badge:!!document.getElementById('aqh-incog'),acts:document.querySelectorAll('#aqh-actions button').length})", ctxId));
+    const dom = json(await evaluate(s, `(() => {
+      const h = document.getElementById("aqh-root");
+      const sr = h && h.shadowRoot;
+      const g = (id) => (sr ? sr.getElementById(id) : document.getElementById(id));
+      const acts = sr ? sr.querySelectorAll("#aqh-actions button").length : document.querySelectorAll("#aqh-actions button").length;
+      let topLayer = false;
+      try { topLayer = !!(h && h.matches(":popover-open")); } catch (e) {}
+      return JSON.stringify({
+        host: !!h, shadow: !!sr, bubble: !!g("aqh-bubble"), badge: !!g("aqh-incog"), acts, topLayer,
+        dispPriority: h ? h.style.getPropertyPriority("display") : "",
+        disp: h ? h.style.getPropertyValue("display") : "",
+      });
+    })()`, ctxId));
     say(dom?.bubble === true && dom.acts === 3, "气泡可渲染且头部按钮齐全", dom);
     say(dom?.badge === false, "普通窗口不显示「无痕」角标", dom?.badge);
+    say(dom?.shadow === true, "UI 位于 Shadow DOM 内（页面 CSS 够不到）", dom?.shadow);
+    say(dom?.disp === "block" && dom?.dispPriority === "important",
+      "宿主带 inline !important（压过页面 !important）", { display: dom?.disp, priority: dom?.dispPriority });
+    say(dom?.topLayer === true, "宿主已进入顶层（无 z-index 能盖住）", dom?.topLayer);
 
     // 全链路：本地 mock LLM → 抓题 → 增量推送 → 历史落盘。
     if (swSt) {
@@ -155,4 +178,4 @@ if (page) {
 
 const failed = report.filter((r) => !r.ok);
 console.log("\n" + (failed.length ? "FAILED " + failed.length + " / " : "ALL PASS ") + report.length);
-process.exit(failed.length ? 1 : 0);
+finish(failed.length ? 1 : 0);

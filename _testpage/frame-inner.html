@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8" /><title>iframe 内容</title></head>
+<body style="font-family: system-ui; padding: 8px">
+  <p id="text">IFRAME-QUESTION-42 这道题在 iframe 里面。</p>
+  <script>
+    // 模拟“题目在 iframe 里被选中”，顶层文档读不到它
+    window.addEventListener("load", () => {
+      const range = document.createRange();
+      range.selectNodeContents(document.getElementById("text"));
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+    });
+  </script>
+</body>
+</html>
